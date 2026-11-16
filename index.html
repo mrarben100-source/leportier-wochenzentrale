@@ -411,7 +411,39 @@ async function mailLoad(){
 function mailShow(){
   const d=S.mail,inv=m=>/rechnung|invoice|faktura|mahnung|zahlungserinnerung|betreibung/i.test(m.subject)||m.attachments.some(a=>/pdf/i.test(a.type+a.name));
   $('#mbox').innerHTML=`<div class="card"><h2>${esc(d.mailbox)} · ${d.total} E-Mails im Posteingang, die neuesten ${d.messages.length}</h2><div class="tw"><table><tr><th>Datum</th><th>Absender</th><th>Betreff</th><th>Anhänge</th></tr>
-  ${d.messages.map(m=>`<tr><td class="num sm">${m.date?new Date(m.date).toLocaleString('de-CH',{dateStyle:'short',timeStyle:'short'}):''}</td><td>${m.seen?'':'<b>'}${esc(m.from_name||m.from_address)}${m.seen?'':'</b>'}<div class="sm mut">${esc(m.from_address)}</div></td><td>${esc(m.subject)} ${inv(m)?'<span class="b zu_pruefen">mögliche Rechnung</span>':''}</td><td class="sm">${m.attachments.map(a=>esc(a.name)).join('<br>')}</td></tr>`).join('')||'<tr><td colspan="4" class="mut">Keine E-Mails.</td></tr>'}</table></div></div>`;
+  ${d.messages.map(m=>`<tr><td class="num sm">${m.date?new Date(m.date).toLocaleString('de-CH',{dateStyle:'short',timeStyle:'short'}):''}</td><td>${m.seen?'':'<b>'}${esc(m.from_name||m.from_address)}${m.seen?'':'</b>'}<div class="sm mut">${esc(m.from_address)}</div></td><td>${esc(m.subject)} ${inv(m)?'<span class="b zu_pruefen">mögliche Rechnung</span>':''}</td><td class="sm">${m.attachments.map(a=>esc(a.name)).join('<br>')}${m.attachments.some(a=>/pdf|jpe?g|png/i.test(a.type+a.name))?`<br><button class="btn xs" onclick="mailTake(${+m.uid})">Ins Archiv</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="mut">Keine E-Mails.</td></tr>'}</table></div></div>`;
+}
+async function ensurePdf(){if(window.pdfjsLib)return;await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';s.onload=ok;s.onerror=()=>no(new Error('PDF-Modul konnte nicht geladen werden'));document.head.appendChild(s)});pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}
+function invGuess(lines){
+  const A=/(?:CHF|Fr\.|SFr\.?)\s*(\d{1,3}(?:['’ ]?\d{3})*[.,]\d{2})(?!\d)|(\d{1,3}(?:['’ ]?\d{3})*[.,]\d{2})\s*(?:CHF|Fr\.)/gi,K=/total|gesamt|rechnungsbetrag|zu (be)?zahlen|zahlbetrag|endbetrag|offener betrag|betrag inkl|währung betrag/i;
+  let amt=null,due=null;
+  lines.forEach((l,i)=>{const t=l+' '+(lines[i+1]||'');if(K.test(l))for(const m of t.matchAll(A)){const n=num(m[1]||m[2]);if(!isNaN(n)&&(amt==null||n>amt))amt=n}
+    if(!due){const m=t.match(/(zahlbar bis|fällig(?:keit)?(?: am| bis)?|zahlungsfrist(?: bis)?|bis spätestens|zahlungsziel)\D{0,20}(\d{1,2}\.\d{1,2}\.\d{2,4})/i);if(m)due=pdate(m[2])}});
+  return{amt,due};
+}
+async function mailTake(uid){
+  toast('Anhänge werden geholt…');
+  const {data,error}=await sb.functions.invoke('lp-mail',{body:{action:'attachments',uid}});let d=data;
+  if(error){try{d=await error.context.json()}catch(_){d={error:error.message}}}
+  if(d?.error)return toast('Fehler: '+d.error,1);
+  const from=d.from_name||d.from_address,when=d.date?iso(new Date(d.date)):today(),src='E-Mail von '+from+' <'+d.from_address+'> vom '+fd(when)+': '+d.subject;let done=0;
+  for(const f of d.files){
+    if(f.skipped){toast(f.name+': '+f.skipped,1);continue}
+    const bytes=Uint8Array.from(atob(f.b64),c=>c.charCodeAt(0)),key='mail-'+uid+'-'+safe(f.name);
+    let doc=S.docs.find(x=>x.file_name===f.name&&+x.size_bytes===bytes.length&&x.storage_path);
+    if(!doc){const p=spath('Lieferantenrechnungen',f.name),u=await sb.storage.from('lp-dokumente').upload(p,new Blob([bytes],{type:f.type}),{contentType:f.type});if(u.error){fail(u.error);continue}
+      const r=await sb.from('lp_documents').insert({library_file_id:'mail_'+crypto.randomUUID(),file_name:f.name,category:'Lieferantenrechnungen',state:'in_supabase',storage_path:p,doc_date:when,modified_on:today(),size_bytes:bytes.length,notes:src.slice(0,300)}).select().single();
+      if(r.error){fail(r.error);continue}doc=r.data}
+    done++;
+    if(S.records.some(r=>r.source_key===key)||doc.record_id)continue;
+    let g={amt:null,due:null};
+    if(f.type==='application/pdf'){try{await ensurePdf();g=invGuess(await pdfLines(await pdfjsLib.getDocument({data:bytes.slice()}).promise))}catch(e){console.warn(e)}}
+    if(!confirm('«'+f.name+'» liegt im Archiv.\n\nAls Rechnungsentwurf «Zu prüfen» erfassen?\nAbsender: '+from+'\nBetrag (aus PDF gelesen, ungeprüft): '+(g.amt!=null?chf(g.amt):'nicht erkannt')+'\nFällig: '+(g.due?fd(g.due):'nicht erkannt')))continue;
+    const r=await sb.from('lp_records').insert({source_key:key,category:'zahlung',title:'Rechnung '+from,status:'zu_pruefen',priority:'mittel',amount_chf:g.amt,due_date:g.due,responsible:'Arben',evidence:f.name,notes:'Entwurf aus '+src.slice(0,250)+'. Betrag und Fälligkeit automatisch aus dem PDF gelesen und nicht bestätigt. Keine Zahlung ausgelöst.',details:{quelle:'email',absender:d.from_address}}).select('id').single();
+    if(r.error){fail(r.error);continue}
+    await sb.from('lp_documents').update({record_id:r.data.id}).eq('library_file_id',doc.library_file_id);
+  }
+  toast(done?done+' Anhang/Anhänge im Archiv':'Keine PDF- oder Bildanhänge gefunden');await load();
 }
 function vLog(){
   const lab={insert:'Neu',update:'Geändert',delete:'Gelöscht'},tn={lp_records:'Eintrag',lp_recurring:'Wiederkehrend',lp_documents:'Dokument',lp_bank_tx:'Bankbuchung',lp_bank_balance:'Kontostand'};

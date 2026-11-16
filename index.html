@@ -52,7 +52,7 @@ dialog form{padding:18px}.fg{display:grid;grid-template-columns:1fr 1fr;gap:10px
 .login{max-width:380px;margin:9vh auto;padding:0 16px}.login .card>*{width:100%;margin-bottom:10px}
 .week{display:grid;grid-template-columns:repeat(7,minmax(120px,1fr));gap:8px;overflow-x:auto}
 .day{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px;min-height:120px}.day.today{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
-.day .d{font-size:12px;color:var(--mut);margin-bottom:6px}.ev{font-size:12px;background:var(--accbg);border-radius:6px;padding:4px 6px;margin-bottom:4px;cursor:pointer}.ev.rec{background:var(--blubg)}
+.day .d{font-size:12px;color:var(--mut);margin-bottom:6px}.ev{font-size:12px;background:var(--accbg);border-radius:6px;padding:4px 6px;margin-bottom:4px;cursor:pointer}.ev.rec{background:var(--blubg)}.ev.cal{background:var(--grnbg);cursor:default}
 .chart{display:flex;align-items:flex-end;gap:10px;height:150px;padding-top:8px}.chart .m{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:38px}
 .chart .bars{display:flex;align-items:flex-end;gap:3px;height:120px}.chart .bars i{width:14px;display:block;border-radius:3px 3px 0 0}.chart .in{background:var(--grn)}.chart .out{background:var(--red)}
 @media(max-width:800px){#app{flex-direction:column}
@@ -108,7 +108,7 @@ async function boot(){
   const {data:m}=await sb.from('lp_members').select('role,display_name').eq('user_id',S.user.id).maybeSingle();
   if(!m||m.role==='pending')return pendingView(m);
   S.role=m.role;S.name=m.display_name||S.user.email;
-  await load();shell();route();live();autoMail();setInterval(autoMail,120000);
+  await load();shell();route();live();autoMail();setInterval(autoMail,120000);calLoad(true);setInterval(()=>calLoad(true),900000);
 }
 function pendingView(m){
   root.innerHTML=`<div class="login"><div class="card"><h1>Zugang noch nicht freigeschaltet</h1><p>Angemeldet als <b>${esc(S.user.email)}</b>.</p>
@@ -194,6 +194,7 @@ function vHome(){
    <div class="card"><h2>Priorität 1 ohne Fälligkeit</h2>${tbl(p1,'Keine.')}</div>
    <div class="card"><h2>Events und Eventabrechnungen</h2>${tbl(ev.slice().sort((a,b)=>(b.due_date||'').localeCompare(a.due_date||'')).slice(0,6),'Keine Events.')}</div>
    ${admin()?`<div class="card"><h2>Einnahmen und Ausgaben (Bank)</h2>${chart()}</div>`:''}
+   ${admin()?`<div class="card"><h2>Kalender: nächste Termine</h2>${calBox(8)}<p class="sm"><a href="#kalender">Zum Kalender</a></p></div>`:''}
    <div class="card"><h2>Aktivitäten</h2>${S.changes.slice(0,10).map(c=>{const a=c.after_value||{},b=c.before_value||{};return `<div class="sm" style="padding:5px 0;border-bottom:1px solid var(--line)"><span class="mut">${new Date(c.changed_at).toLocaleString('de-CH',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span> · <b>${esc(nameOf(c.actor_id))}</b> ${({insert:'hat angelegt',update:'hat geändert',delete:'hat gelöscht'})[c.action]||esc(c.action)}: ${esc(a.title||b.title||a.file_name||b.file_name||a.description||b.description||a.display_name||b.display_name||'')}</div>`}).join('')||'<p class="mut sm">Noch keine Änderungen.</p>'}<p class="sm"><a href="#protokoll">Ganzes Protokoll</a></p></div>
    <div class="card"><h2>E-Mail-Posteingang</h2>${autoBox()}${mailRecent()}<p class="mut sm"><a href="#email">Posteingang öffnen</a></p></div>
   </div>`);
@@ -279,8 +280,8 @@ function evPrint(id){
 async function recDone(id){const r=S.recurring.find(x=>x.id===id);let n=r.next_due;if(r.cadence==='weekly')n=addDays(n,7);else{const d=new Date(n+'T12:00');d.setMonth(d.getMonth()+1);n=iso(d)}
   const {error}=await sb.from('lp_recurring').update({next_due:n}).eq('id',id);error?fail(error):(toast('Nächste Fälligkeit: '+fd(n)),refresh())}
 
-function editRec(id,cat){
-  const r=id?S.records.find(x=>x.id===id):{category:cat||'aufgabe',status:'offen',priority:'mittel',details:{},title:'',notes:'',evidence:''},d=r.details||{},ro=!canEdit()||(S.role==='editor'&&['zahlung','vertrag'].includes(r.category));
+function editRec(id,cat,pre){
+  const r=id?S.records.find(x=>x.id===id):{category:cat||'aufgabe',status:'offen',priority:'mittel',details:{},title:'',notes:'',evidence:'',...(pre||{})},d=r.details||{},ro=!canEdit()||(S.role==='editor'&&['zahlung','vertrag'].includes(r.category));
   const docs=id?S.docs.filter(x=>x.record_id===id):[],tx=id?S.tx.filter(t=>t.record_id===id):[];
   dlg.innerHTML=`<form method="dialog" id="rf"><h2>${id?'Eintrag bearbeiten':'Neuer Eintrag'}</h2><div class="fg">
   <label class="w">Titel<input name="title" required value="${esc(r.title)}"></label>
@@ -590,11 +591,26 @@ async function docOpen(i,dl){const d=S.docs[i],w=dl?null:window.open('','_blank'
   if(error){w&&w.close();return toast('Kein Zugriff auf diese Datei: '+error.message,1)}dl?location.href=data.signedUrl:w.location=data.signedUrl}
 
 /* ---------- Kalender ---------- */
+async function calLoad(quiet){
+  if(!admin()||document.hidden&&quiet)return;if(!quiet)toast('Kalender wird geladen…');
+  const {data,error}=await sb.functions.invoke('lp-kalender',{body:{days_back:21,days_forward:200}});let d=data;
+  if(error){try{d=await error.context.json()}catch(_){d={error:error.message}}}
+  S.cal={...(d||{}),at:new Date()};if(!S.cal.events)S.cal.events=[];
+  if(!quiet)toast(d?.error?'Kalender: '+d.error:S.cal.events.length+' Termine geladen',!!d?.error);
+  const k=location.hash.slice(1)||'uebersicht';if(!dlg.open&&(k==='kalender'||(k==='uebersicht'&&!/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName||''))))route();
+}
+const calHas=e=>S.records.some(r=>r.category==='event'&&r.due_date===e.date);
+function calTake(i){const e=S.cal.events[i];editRec(null,'event',{title:e.title+' · '+fd(e.date).slice(0,6),due_date:e.date,notes:'Aus dem Kalender '+(S.cal.mailbox||'')+' übernommen'+(e.time?', Beginn '+e.time+' Uhr':'')+(e.location?', Ort: '+e.location:'')+'.',evidence:'Kalender'})}
+function calBox(n){const c=S.cal;if(!admin())return '';if(!c)return '<p class="mut sm">Kalender wird geladen…</p>';
+  if(c.error)return `<div class="note red sm">Kalender nicht erreichbar: ${esc(c.error==='not_configured'?'Zugangsdaten fehlen':c.error)}</div>`;
+  const t=today(),a=c.events.map((e,i)=>({e,i})).filter(x=>(x.e.end_date||x.e.date)>=t).slice(0,n);
+  return `${(c.errors||[]).length?`<div class="note red sm">${c.errors.map(esc).join('<br>')}</div>`:''}${a.map(({e,i})=>`<div class="sm" style="padding:5px 0;border-bottom:1px solid var(--line)"><b>${fd(e.date)}</b>${e.time?' '+esc(e.time):''} · ${esc(e.title)}${e.location?' <span class="mut">('+esc(e.location)+')</span>':''} <span class="mut">${esc(e.calendar||'')}</span>${canEdit()&&!calHas(e)?` <button class="btn xs sec" onclick="calTake(${i})">Als Event übernehmen</button>`:''}</div>`).join('')||'<p class="mut sm">Keine kommenden Termine im Kalender.</p>'}<p class="sm mut">Kalender ${esc(c.mailbox||'')}, Stand ${c.at.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'})} Uhr. Nur lesend; Termine werden im Kalender selbst gepflegt.</p>`}
 function vCal(){
   const ws=S.f.ws??=monday(today()),t=today(),dn=['Mo','Di','Mi','Do','Fr','Sa','So'];
   const up=S.records.filter(r=>open(r)&&r.due_date&&r.due_date>addDays(ws,6)).slice(0,15);
   M(`<h1>Kalender</h1><div class="bar"><button class="btn sec" onclick="S.f.ws=addDays(S.f.ws,-7);vCal()">‹ Woche zurück</button><button class="btn sec" onclick="S.f.ws=monday(today());vCal()">Heute</button><button class="btn sec" onclick="S.f.ws=addDays(S.f.ws,7);vCal()">Woche vor ›</button><b>${fd(ws)} – ${fd(addDays(ws,6))}</b></div>
-  <div class="week">${dn.map((n,i)=>{const d=addDays(ws,i);return `<div class="day${d===t?' today':''}"><div class="d">${n} ${fd(d).slice(0,6)}</div>${S.records.filter(r=>r.due_date===d||r.remind_on===d).map(r=>`<div class="ev" onclick="editRec('${r.id}')">${r.remind_on===d&&r.due_date!==d?'⏰ ':''}${esc(r.title)}</div>`).join('')}${S.recurring.filter(r=>r.active&&r.next_due===d).map(r=>`<div class="ev rec" onclick="location.hash='aufgaben'">↻ ${esc(r.title)}</div>`).join('')}</div>`}).join('')}</div>
+  <div class="week">${dn.map((n,i)=>{const d=addDays(ws,i);return `<div class="day${d===t?' today':''}"><div class="d">${n} ${fd(d).slice(0,6)}</div>${S.records.filter(r=>r.due_date===d||r.remind_on===d).map(r=>`<div class="ev" onclick="editRec('${r.id}')">${r.remind_on===d&&r.due_date!==d?'⏰ ':''}${esc(r.title)}</div>`).join('')}${S.recurring.filter(r=>r.active&&r.next_due===d).map(r=>`<div class="ev rec" onclick="location.hash='aufgaben'">↻ ${esc(r.title)}</div>`).join('')}${(S.cal?.events||[]).filter(e=>e.date===d).map(e=>`<div class="ev cal" title="${esc((e.location||'')+' '+(e.note||''))}">📅 ${e.time?esc(e.time)+' ':''}${esc(e.title)}</div>`).join('')}</div>`}).join('')}</div>
+  ${admin()?`<div class="card" style="margin-top:14px"><h2>Termine aus dem Kalender</h2><div class="bar"><button class="btn sec" onclick="calLoad()">Kalender aktualisieren</button></div>${calBox(40)}</div>`:''}
   <div class="card" style="margin-top:14px"><h2>Danach fällig</h2>${up.length?up.map(r=>`<div class="sm" style="padding:5px 0;border-bottom:1px solid var(--line);cursor:pointer" onclick="editRec('${r.id}')">${fd(r.due_date)} · ${esc(r.title)} <span class="mut">(${esc(r.responsible||'–')})</span></div>`).join(''):'<p class="mut sm">Keine späteren Fälligkeiten erfasst.</p>'}</div>`);
 }
 

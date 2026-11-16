@@ -159,7 +159,7 @@ function vHome(){
    <div class="card"><h2>Priorität 1 ohne Fälligkeit</h2>${tbl(p1,'Keine.')}</div>
    <div class="card"><h2>Events und Eventabrechnungen</h2>${tbl(ev.slice().sort((a,b)=>(b.due_date||'').localeCompare(a.due_date||'')).slice(0,6),'Keine Events.')}</div>
    ${admin()?`<div class="card"><h2>Einnahmen und Ausgaben (Bank)</h2>${chart()}</div>`:''}
-   <div class="card"><h2>E-Mail-Posteingang</h2><p class="mut sm">Hostpoint-Postfach noch nicht verbunden. <a href="#email">Details</a></p></div>
+   <div class="card"><h2>E-Mail-Posteingang</h2><p class="mut sm"><a href="#email">Posteingang öffnen</a></p></div>
   </div>`);
 }
 function months(){const m={};S.tx.forEach(t=>{if(t.review_state==='duplikat')return;const k=t.booking_date.slice(0,7);m[k]??={in:0,out:0};+t.amount_chf>=0?m[k].in+=+t.amount_chf:m[k].out-=+t.amount_chf});return m}
@@ -395,8 +395,24 @@ function vCal(){
 }
 
 /* ---------- E-Mail / Protokoll ---------- */
-function vMail(){M(`<h1>E-Mail-Posteingang</h1><div class="note">Das Hostpoint-Postfach ist noch nicht verbunden. Die Anbindung läuft serverseitig; das Passwort wird nur als geschütztes Secret in Supabase hinterlegt und nie in dieser Oberfläche gespeichert.</div>
-  <div class="card"><h2>Geplanter Umfang</h2><ul><li>Eingehende E-Mails anzeigen, Rechnungen und PDF-Anhänge erkennen</li><li>Anhänge ins private Archiv übernehmen</li><li>Betrag, Absender und Fälligkeit als Entwurf «Zu prüfen» erfassen</li><li>Antwortentwürfe; Versand nur nach ausdrücklicher Freigabe</li><li>Keine automatische Zahlungsfreigabe</li></ul></div>`)}
+function vMail(){
+  if(!admin())return M('<h1>E-Mail-Posteingang</h1><div class="note">Nur für Admin sichtbar.</div>');
+  M(`<h1>E-Mail-Posteingang</h1><p class="mut">Hostpoint-Postfach, nur lesend. Es werden keine E-Mails verändert, gelöscht oder versendet.</p><div class="bar"><button class="btn" onclick="mailLoad()">Posteingang laden</button></div><div id="mbox"></div>`);
+  if(S.mail)mailShow();
+}
+async function mailLoad(){
+  $('#mbox').innerHTML='<p class="mut">Verbinde mit Hostpoint…</p>';
+  const {data,error}=await sb.functions.invoke('lp-mail',{body:{limit:40}});let d=data;
+  if(error){try{d=await error.context.json()}catch(_){d={error:error.message}}}
+  if(d?.error==='not_configured')return $('#mbox').innerHTML='<div class="note">Das Postfach ist noch nicht verbunden. In Supabase müssen zuerst die Secrets <b>HOSTPOINT_USER</b> und <b>HOSTPOINT_PASS</b> hinterlegt werden.</div>';
+  if(d?.error)return $('#mbox').innerHTML='<div class="note red"><b>Verbindung fehlgeschlagen:</b> '+esc(d.error)+'</div>';
+  S.mail=d;mailShow();
+}
+function mailShow(){
+  const d=S.mail,inv=m=>/rechnung|invoice|faktura|mahnung|zahlungserinnerung|betreibung/i.test(m.subject)||m.attachments.some(a=>/pdf/i.test(a.type+a.name));
+  $('#mbox').innerHTML=`<div class="card"><h2>${esc(d.mailbox)} · ${d.total} E-Mails im Posteingang, die neuesten ${d.messages.length}</h2><div class="tw"><table><tr><th>Datum</th><th>Absender</th><th>Betreff</th><th>Anhänge</th></tr>
+  ${d.messages.map(m=>`<tr><td class="num sm">${m.date?new Date(m.date).toLocaleString('de-CH',{dateStyle:'short',timeStyle:'short'}):''}</td><td>${m.seen?'':'<b>'}${esc(m.from_name||m.from_address)}${m.seen?'':'</b>'}<div class="sm mut">${esc(m.from_address)}</div></td><td>${esc(m.subject)} ${inv(m)?'<span class="b zu_pruefen">mögliche Rechnung</span>':''}</td><td class="sm">${m.attachments.map(a=>esc(a.name)).join('<br>')}</td></tr>`).join('')||'<tr><td colspan="4" class="mut">Keine E-Mails.</td></tr>'}</table></div></div>`;
+}
 function vLog(){
   const lab={insert:'Neu',update:'Geändert',delete:'Gelöscht'},tn={lp_records:'Eintrag',lp_recurring:'Wiederkehrend',lp_documents:'Dokument',lp_bank_tx:'Bankbuchung',lp_bank_balance:'Kontostand'};
   M(`<h1>Änderungsprotokoll</h1><p class="mut">Jede Änderung wird automatisch mit Zeitpunkt und altem/neuem Wert gespeichert. Angezeigt werden die letzten 150.</p><div class="card"><div class="tw"><table><tr><th>Zeit</th><th>Bereich</th><th>Aktion</th><th>Betroffen</th><th>Geänderte Felder</th></tr>

@@ -249,12 +249,12 @@ function parseBfpos(txt){
   if(K.von&&!isNaN(new Date(K.von)))K.datum=new Date(K.von).toLocaleDateString('sv-SE',{timeZone:'Europe/Zurich'});
   ['bar','unbar','sonstige','netto','trinkgeld','brutto'].forEach(k=>K[k]??=0);
   const c=(x,y)=>Math.abs(x-y)<0.006;
-  K.ok=K.abschluss>0&&!!K.datum&&c(K.bar+K.unbar+K.sonstige,K.netto)&&c(K.netto+K.trinkgeld,K.brutto)&&(!K.produkte.length||c(K.produkte.reduce((s,p)=>s+p.umsatz,0),K.netto));
+  K.ok=K.abschluss>0&&!!K.datum&&c(K.bar+K.unbar+K.sonstige,K.netto)&&c(K.netto+K.trinkgeld,K.brutto);
   return K;
 }
 async function kasseAdd(K){
   if(!K||!(K.abschluss>0)||!K.datum){toast('Tagesabschluss nicht lesbar',1);return false}
-  if(!K.ok&&!confirm('Abschluss #'+K.abschluss+': Die Summen in der Datei gehen nicht auf. Trotzdem übernehmen?'))return false;
+  if(!K.ok&&!confirm('Abschluss #'+K.abschluss+': Bar + Karten + Sonstige ergeben nicht den Umsatz, oder Umsatz + Trinkgeld nicht das Total. Die Datei könnte unvollständig sein.\n\nTrotzdem übernehmen?'))return false;
   let evs=S.records.filter(r=>r.category==='event'&&r.due_date===K.datum),ev=evs[0];
   if(evs.length>1){const n=prompt('Am '+fd(K.datum)+' gibt es mehrere Events. Zu welchem gehört der Abschluss #'+K.abschluss+' ('+chf(K.brutto)+')?\n\n'+evs.map((e,i)=>(i+1)+') '+e.title).join('\n')+'\n\nNummer eingeben:','1');ev=evs[+n-1];if(!ev)return false}
   if(!ev){const r=await sb.from('lp_records').insert({category:'event',title:'Event '+fd(K.datum)+' (aus Tagesabschluss)',status:'zu_pruefen',priority:'mittel',due_date:K.datum,responsible:'Levent',notes:'Automatisch aus BF-POS-Tagesabschluss angelegt. Eventname und weitere Angaben ergänzen.',details:{kassen:[K]}}).select().single();

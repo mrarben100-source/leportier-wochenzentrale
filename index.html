@@ -420,6 +420,7 @@ const nname=n=>String(n||'').toLowerCase().normalize('NFC').replace(/\s*\(\d+\)(
 async function upload(){
   const cat=$('#upc').value,dd=$('#upd').value||null,res={zug:[],neu:[],dub:[],abw:[],err:[]};let i=0,fs;
   try{fs=await unzipAll([...$('#up').files],res)}catch(e){return fail(e)}
+  await load();
   if(!fs.length&&!res.err.length)return toast('Bitte Datei(en) wählen',1);
   for(const f of fs){toast('Lade hoch '+(++i)+' / '+fs.length+' …');
     const k=nname(f.name),same=S.docs.filter(d=>nname(d.file_name)===k);

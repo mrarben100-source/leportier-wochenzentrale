@@ -482,7 +482,7 @@ const pnum=s=>+String(s).replace(/['’]/g,'');
 const dmy=s=>s.slice(6,10)+'-'+s.slice(3,5)+'-'+s.slice(0,2);
 const SKIP=[/^Valiant Bank AG$/,/^Bundesplatz 4$/,/^3001 Bern$/,/^CHE-[\d.]+ MWST$/,/^(Datum\/Zeit|Vertrag|Konto|IBAN|Bezeichnung|Inhaber\/in)\s/,/^Kontoauszug$/,/^Datum\s+Buchungstext/,/Angaben ohne Gewähr/,/^Seite \d+/];
 function parseValiant(lines){
-  const R={rows:[],warn:[]},T=/^(\d\d\.\d\d\.\d{4})\s+(.*?)\s*(\d\d\.\d\d\.\d{4})\s+(-?[\d'’]+\.\d\d)\s+(-?[\d'’]+\.\d\d)$/,G=/^(\d\d\.\d\d\.\d{4})\s+(.*)\s+(\d\d\.\d\d\.\d{4})\s+(-?[\d'’]+\.\d\d)\s+(-?[\d'’]+\.\d\d)$/;
+  const R={rows:[],warn:[],seen:{}},T=/^(\d\d\.\d\d\.\d{4})\s+(.*?)\s*(\d\d\.\d\d\.\d{4})\s+(-?[\d'’]+\.\d\d)\s+(-?[\d'’]+\.\d\d)$/,G=/^(\d\d\.\d\d\.\d{4})\s+(.*)\s+(\d\d\.\d\d\.\d{4})\s+(-?[\d'’]+\.\d\d)\s+(-?[\d'’]+\.\d\d)$/;
   let prev=null,cur=null;const tx=[];
   for(let l of lines){l=l.replace(/\s+/g,' ').trim();if(!l)continue;let m;
     if(m=l.match(/^Anfangssaldo per (\S+) CHF (-?[\d'’.]+)/)){if(R.start==null){R.start=pnum(m[2]);R.startDate=dmy(m[1]);prev=R.start}continue}
@@ -493,7 +493,7 @@ function parseValiant(lines){
     if(SKIP.some(x=>x.test(l)))continue;
     if(R.einzel&&(m=l.match(/^(\d\d\.\d\d\.\d{4})\s+(.*?)\s*([A-Z]{3})\s+(-?[\d'’]+\.\d\d)\s+(-?[\d'’]+\.\d\d)$/))){
       const a=pnum(m[4]),s=pnum(m[5]),dl=Math.round((s-(prev??0))*100)/100;
-      const fee=m[3]==='CHF'&&Math.abs(Math.abs(dl)-a)>0.006;if(!dl){if(cur)cur.det.push('+ '+m[2].trim()+' '+m[3]+' '+m[4]);continue}
+      const fee=m[3]==='CHF'&&Math.abs(Math.abs(dl)-a)>0.006;if(!dl){cur=null;continue}
       prev=s;cur={einzel:true,date:dmy(m[1]),val:null,title:m[2].trim()+(m[3]==='CHF'?'':' ('+m[3]+' '+m[4]+')'),amt:dl,bal:s,det:[],note:fee?'Im Auszug ausgewiesen: CHF '+m[4]+'; dem Konto belastet bzw. gutgeschrieben inkl. Spesen: CHF '+Math.abs(dl).toFixed(2)+'.':''};tx.push(cur);continue}
     if(m=l.match(G)||l.match(T)){const a=pnum(m[4]),s=pnum(m[5]);let sign=0;
       if(prev!=null){const d=Math.round((s-prev)*100)/100;if(Math.abs(Math.abs(d)-a)<0.006)sign=d<0?-1:1}
@@ -505,7 +505,7 @@ function parseValiant(lines){
   const info=d=>{let p='',mi=[],b=null;for(let i=0;i<d.length;i++){if(/^(Begünstigter|Auftraggeber)$/.test(d[i])&&!p)p=d[i+1]||'';if(d[i]==='Betrag'&&b==null){const x=(d[i+1]||'').match(/^CHF (-?[\d'’.]+)$/);if(x)b=pnum(x[1])}if(d[i]==='Mitteilung / Referenz'){for(let j=i+1;j<d.length&&!LAB.test(d[j]);j++)mi.push(d[j])}}return{p,m:mi.join(' ').slice(0,90),b}};
   for(const t of tx){
     if(t.einzel){const desc=(t.title+' '+t.det.join(' ')).replace(/\s+/g,' ').trim().slice(0,170),r=RULES.find(x=>x[0].test(desc));
-      R.rows.push({booking_date:t.date,value_date:null,description:desc,amount_chf:t.amt,balance_chf:t.bal,category:r?r[1]:/^(Bancomatbezug|Geldautomaten Bezug)/.test(desc)?'Bargeldbezug':/^Einzahlung/.test(desc)?'Bareinzahlung':/^Übertrag/.test(desc)?'Übertrag (zu prüfen)':'unkategorisiert',kind:r?r[2]:'normal',review_state:'zu_pruefen',dedupe_key:'b|'+t.date+'|'+t.amt.toFixed(2)+'|'+t.bal.toFixed(2),notes:t.note||''});continue}
+      R.rows.push({booking_date:t.date,value_date:null,description:desc,amount_chf:t.amt,balance_chf:t.bal,category:r?r[1]:/^(Bancomatbezug|Geldautomaten Bezug)/.test(desc)?'Bargeldbezug':/^Einzahlung/.test(desc)?'Bareinzahlung':/^Übertrag/.test(desc)?'Übertrag (zu prüfen)':'unkategorisiert',kind:r?r[2]:'normal',review_state:'zu_pruefen',dedupe_key:(k=>{const c=R.seen[k]=(R.seen[k]||0)+1;return c>1?k+'|'+c:k})('b|'+t.date+'|'+t.amt.toFixed(2)+'|'+t.bal.toFixed(2)),notes:t.note||''});continue}
     const title=t.title.replace(/ - \d\d\.\d\d\.\d{4}$/,''),blocks=[];let c=null;
     for(const x of t.det){if(/^(Begünstigter|Auftraggeber)$/.test(x)){c=[];blocks.push(c)}if(c)c.push(x)}
     const mk=(amt,det,bal,key,note)=>{const i=info(det),desc=[title,i.p,/^(Zahlung|Kartengeb)/.test(title)?'':i.m].filter(Boolean).join(' · '),r=RULES.find(x=>x[0].test(desc));

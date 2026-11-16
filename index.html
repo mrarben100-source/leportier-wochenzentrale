@@ -2,7 +2,15 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-32.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#1c1b19">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Le Portier">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="robots" content="noindex,nofollow">
 <title>Le Portier N°35 – Wochenzentrale</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -14,7 +22,7 @@ h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0 0 10px}h3{font-size:
 .mut{color:var(--mut)}.sm{font-size:13px}.num{font-variant-numeric:tabular-nums;white-space:nowrap}.r{text-align:right}
 #app{display:flex;min-height:100vh}
 nav{width:220px;background:var(--side);color:#eee;padding:18px 10px;flex-shrink:0;position:sticky;top:0;height:100vh;overflow:auto}
-nav .brand{font-weight:700;padding:0 10px 14px;letter-spacing:.3px}nav .brand span{display:block;font-weight:400;font-size:12px;color:#aaa}
+nav .brand{font-weight:700;padding:0 10px 14px;letter-spacing:.3px;display:flex;align-items:center;gap:10px}nav .brand img{width:38px;height:38px;border-radius:9px}nav .brand span{display:block;font-weight:400;font-size:12px;color:#aaa}
 nav a{display:block;color:#ddd;text-decoration:none;padding:9px 10px;border-radius:8px;margin-bottom:2px}
 nav a.on{background:#3a352c;color:#fff}nav a:hover{background:#2c2925}
 nav .who{margin-top:16px;padding:10px;font-size:12px;color:#aaa;border-top:1px solid #333}
@@ -47,7 +55,17 @@ dialog form{padding:18px}.fg{display:grid;grid-template-columns:1fr 1fr;gap:10px
 .day .d{font-size:12px;color:var(--mut);margin-bottom:6px}.ev{font-size:12px;background:var(--accbg);border-radius:6px;padding:4px 6px;margin-bottom:4px;cursor:pointer}.ev.rec{background:var(--blubg)}
 .chart{display:flex;align-items:flex-end;gap:10px;height:150px;padding-top:8px}.chart .m{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:38px}
 .chart .bars{display:flex;align-items:flex-end;gap:3px;height:120px}.chart .bars i{width:14px;display:block;border-radius:3px 3px 0 0}.chart .in{background:var(--grn)}.chart .out{background:var(--red)}
-@media(max-width:800px){#app{flex-direction:column}nav{width:100%;height:auto;position:static;display:flex;overflow-x:auto;padding:8px;gap:4px;align-items:center}nav .brand{padding:0 8px;white-space:nowrap}nav .brand span{display:none}nav a{white-space:nowrap;margin:0;padding:7px 10px}nav .who{border:none;margin:0;padding:0 8px;white-space:nowrap}main{padding:14px}.fg{grid-template-columns:1fr}td,th{padding:6px}}
+@media(max-width:800px){#app{flex-direction:column}
+nav{width:100%;height:auto;position:sticky;top:0;z-index:20;display:flex;overflow-x:auto;gap:4px;align-items:center;padding:calc(6px + env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) 6px max(8px,env(safe-area-inset-left));-webkit-overflow-scrolling:touch;scrollbar-width:none}nav::-webkit-scrollbar{display:none}
+nav .brand{padding:0 6px 0 0;white-space:nowrap}nav .brand div{display:none}nav .brand img{width:32px;height:32px}
+nav a{white-space:nowrap;margin:0;padding:9px 12px;font-size:15px}nav .who{border:none;margin:0;padding:0 8px;white-space:nowrap;display:flex;gap:8px;align-items:center}nav .who br{display:none}nav .who button{margin:0}
+main{padding:12px max(12px,env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+h1{font-size:20px}.grid{grid-template-columns:1fr 1fr;gap:8px}.kpi .v{font-size:18px}.card{padding:12px}.cols{grid-template-columns:1fr}
+input,select,textarea{font-size:16px}button.btn{min-height:40px}button.btn.xs{min-height:32px;font-size:13px}
+.bar>input:not([type=checkbox]):not([type=file]),.bar>select{flex:1 1 140px;min-width:0}
+.fg{grid-template-columns:1fr}#evf{grid-template-columns:1fr!important}td,th{padding:6px}
+dialog{width:100vw;max-width:100vw;max-height:100dvh;height:100dvh;margin:0;border-radius:0}dialog form{padding:calc(14px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom))}
+.login{margin-top:calc(6vh + env(safe-area-inset-top))}#toast{bottom:calc(18px + env(safe-area-inset-bottom))}}
 @media print{nav,.bar,button{display:none!important}main{padding:0}}
 </style>
 </head>
@@ -132,7 +150,7 @@ async function refresh(){await load();route()}
 /* ---------- Rahmen ---------- */
 const NAV=[['uebersicht','Übersicht'],['aufgaben','Aufgaben'],['finanzen','Finanzen'],['events','Events'],['lieferanten','Lieferanten'],['personal','Personal'],['dokumente','Dokumente'],['kalender','Kalender'],['email','E-Mail'],['protokoll','Protokoll']];
 function shell(){
-  root.innerHTML=`<div id="app"><nav><div class="brand">Le Portier N°35<span>Wochenzentrale</span></div>${NAV.map(([k,l])=>`<a href="#${k}" data-k="${k}">${l}</a>`).join('')}
+  root.innerHTML=`<div id="app"><nav><div class="brand"><img src="icon-180.png" alt=""><div>Le Portier N°35<span>Wochenzentrale</span></div></div>${NAV.map(([k,l])=>`<a href="#${k}" data-k="${k}">${l}</a>`).join('')}
   <div class="who">${esc(S.name)} · ${esc({admin:'Admin',editor:'Bearbeiter',viewer:'Nur lesen'}[S.role])}<br><button onclick="logout()">Abmelden</button></div></nav><main id="main"></main></div>`;
 }
 window.onhashchange=()=>S.role&&route();

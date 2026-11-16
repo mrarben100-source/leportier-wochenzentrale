@@ -149,7 +149,7 @@ async function load(){
 async function refresh(){await load();route()}
 
 /* ---------- Rahmen ---------- */
-const NAV=[['uebersicht','Übersicht'],['aufgaben','Aufgaben'],['finanzen','Finanzen'],['events','Events'],['lieferanten','Lieferanten'],['bestellungen','Bestellungen'],['personal','Personal'],['dokumente','Dokumente'],['kalender','Kalender'],['email','E-Mail'],['protokoll','Protokoll']];
+const NAV=[['uebersicht','Übersicht'],['aufgaben','Aufgaben'],['rechnungen','Rechnungen'],['finanzen','Finanzen'],['events','Events'],['lieferanten','Lieferanten'],['bestellungen','Bestellungen'],['personal','Personal'],['dokumente','Dokumente'],['kalender','Kalender'],['email','E-Mail'],['protokoll','Protokoll']];
 function shell(){
   root.innerHTML=`<div id="app"><nav><div class="brand"><img src="icon-180.png" alt=""><div>Le Portier N°35<span>Wochenzentrale</span></div></div>${NAV.map(([k,l])=>`<a href="#${k}" data-k="${k}">${l}</a>`).join('')}
   <div class="who">${esc(S.name)} · ${esc({admin:'Admin',editor:'Bearbeiter',viewer:'Nur lesen'}[S.role])}<br><button onclick="logout()">Abmelden</button></div></nav><main id="main"></main></div>`;
@@ -157,7 +157,7 @@ function shell(){
 window.onhashchange=()=>S.role&&route();
 function route(){
   const k=(location.hash.slice(1)||'uebersicht');document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.k===k));
-  ({uebersicht:vHome,aufgaben:()=>vList('aufgaben'),finanzen:vFin,events:()=>vList('events'),lieferanten:()=>vList('lieferanten'),bestellungen:vOrders,personal:()=>vList('personal'),dokumente:vDocs,kalender:vCal,email:vMail,protokoll:vLog}[k]||vHome)();
+  ({uebersicht:vHome,aufgaben:()=>vList('aufgaben'),rechnungen:vBills,finanzen:vFin,events:()=>vList('events'),lieferanten:()=>vList('lieferanten'),bestellungen:vOrders,personal:()=>vList('personal'),dokumente:vDocs,kalender:vCal,email:vMail,protokoll:vLog}[k]||vHome)();
 }
 const M=h=>$('#main').innerHTML=h;
 const open=r=>r.status!=='erledigt';
@@ -304,6 +304,7 @@ function editRec(id,cat,pre){
   <label>Fällig am / Eventdatum<input name="due_date" type="date" value="${r.due_date||''}"></label>
   <label>Erinnerung am<input name="remind_on" type="date" value="${r.remind_on||''}"></label>
   <label>Nachweis / Quelle<input name="evidence" value="${esc(r.evidence)}"></label>
+  <label>Firma / Gläubiger<input name="d_firma" value="${esc(d.firma||'')}" placeholder="z. B. EWB, Stardrinks"></label>
   <label class="w">Notizen<textarea name="notes">${esc(r.notes)}</textarea></label>
   <div class="w" id="evf" style="display:${r.category==='event'?'grid':'none'};grid-template-columns:1fr 1fr;gap:10px">${EVF.map(([k,l,n])=>`<label>${l}<input name="d_${k}" ${n?'type="number" step="0.01"':''} value="${esc(d[k]??'')}"></label>`).join('')}</div>
   </div>
@@ -314,6 +315,7 @@ function editRec(id,cat,pre){
   if(ro)f.querySelectorAll('input,select,textarea').forEach(e=>e.disabled=true);
   f.onsubmit=async e=>{if(e.submitter?.value!=='s')return;e.preventDefault();const v=Object.fromEntries(new FormData(f));const det={...d};
     if(v.category==='event')EVF.forEach(([k,,n])=>{const x=v['d_'+k];if(x==='')delete det[k];else det[k]=n?+x:x});
+    if(v.d_firma!==undefined){if(v.d_firma.trim())det.firma=v.d_firma.trim();else delete det.firma}
     const p={title:v.title.trim(),category:v.category,responsible:v.responsible.trim()||null,status:v.status,priority:v.priority,amount_chf:v.amount_chf===''?null:+v.amount_chf,due_date:v.due_date||null,remind_on:v.remind_on||null,evidence:v.evidence,notes:v.notes,details:det};
     if(id){const {data,error}=await sb.from('lp_records').update(p).eq('id',id).eq('updated_at',r.updated_at).select('id');if(error)return fail(error);
       if(!data.length){dlg.close();toast('Nicht gespeichert: Dieser Eintrag wurde inzwischen von jemand anderem geändert. Er wird neu geladen, bitte Änderung nochmals eintragen.',1);return refresh()}}
@@ -321,6 +323,35 @@ function editRec(id,cat,pre){
     dlg.close();toast('Gespeichert');refresh()};
   dlg.showModal();if(id)cmLoad(id);
 }
+
+/* ---------- Rechnungen ---------- */
+const firma=r=>(r.details?.firma||r.title.replace(/^Rechnung\s+/i,'').replace(/-Rechnung$/i,'').split(/\s+[–-]\s+/)[0]).trim();
+const billState=r=>r.status==='erledigt'?'bezahlt':r.status==='zu_pruefen'?'pruefen':'offen';
+function vBills(){
+  const f=S.f.bill??={v:'offen',q:''},q=f.q.toLowerCase(),t=today();
+  const all=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&!['bestellung','wiederkehrend'].includes(r.details?.art)&&!r.details?.dublette);
+  const sum=k=>all.filter(r=>billState(r)===k).reduce((s,r)=>s+(+r.amount_chf||0),0),cnt=k=>all.filter(r=>billState(r)===k).length,nob=k=>all.filter(r=>billState(r)===k&&r.amount_chf==null).length;
+  const show=all.filter(r=>(f.v==='alle'||billState(r)===f.v)&&(!q||(firma(r)+' '+r.title+' '+r.notes).toLowerCase().includes(q)));
+  const G={};show.forEach(r=>(G[firma(r)]??=[]).push(r));
+  const firms=Object.entries(G).sort((a,b)=>b[1].reduce((s,r)=>s+(+r.amount_chf||0),0)-a[1].reduce((s,r)=>s+(+r.amount_chf||0),0));
+  const P={};S.tx.filter(x=>+x.amount_chf<0&&konto(x)==='GmbH'&&!intern(x)&&x.review_state!=='duplikat').forEach(x=>{const n=(x.description.split(' · ')[1]||'').trim();if(!n)return;const p=P[n]??={n:0,s:0,last:''};p.n++;p.s-=+x.amount_chf;if(x.booking_date>p.last)p.last=x.booking_date});
+  const payees=Object.entries(P).filter(([n])=>!q||n.toLowerCase().includes(q)).sort((a,b)=>b[1].s-a[1].s);
+  const tab=(k,l)=>`<button class="btn ${f.v===k?'':'sec'}" onclick="S.f.bill.v='${k}';vBills()">${l}</button>`;
+  M(`<h1>Rechnungen und Gläubiger</h1>
+  <div class="grid"><div class="card kpi"><div class="l">Offen</div><div class="v num" style="color:var(--red)">${chf(sum('offen'))}</div><div class="sm mut">${cnt('offen')} Posten${nob('offen')?', '+nob('offen')+' ohne Betrag':''}</div></div>
+  <div class="card kpi"><div class="l">Zu prüfen (unbestätigt)</div><div class="v num">${chf(sum('pruefen'))}</div><div class="sm mut">${cnt('pruefen')} Posten${nob('pruefen')?', '+nob('pruefen')+' ohne Betrag':''}</div></div>
+  <div class="card kpi"><div class="l">Bezahlt / erledigt</div><div class="v num" style="color:var(--grn)">${chf(sum('bezahlt'))}</div><div class="sm mut">${cnt('bezahlt')} Posten</div></div></div>
+  <div class="note">«Zu prüfen» sind Posten, deren Betrag oder Stand nicht bestätigt ist; sie sind keine gesicherte Schuld. Als bezahlt gilt ein Posten erst, wenn ihr ihn so markiert. Das Dashboard löst keine Zahlung aus.</div>
+  <div class="bar">${tab('offen','Offen')}${tab('pruefen','Zu prüfen')}${tab('bezahlt','Bezahlt')}${tab('alle','Alle')}<input id="bq" placeholder="Firma suchen…" value="${esc(f.q)}" style="flex:1">${canEdit()?`<button class="btn" onclick="editRec(null,'zahlung')">+ Neue Rechnung</button>`:''}</div>
+  ${firms.map(([n,rs])=>{const o=rs.filter(r=>billState(r)!=='bezahlt'),os=o.reduce((s,r)=>s+(+r.amount_chf||0),0);return `<div class="card" style="margin-bottom:10px"><h2>${esc(n)} ${o.length?`<span class="b ${o.some(r=>billState(r)==='offen')?'p1':'zu_pruefen'}">${o.length} offen${os?' · '+chf(os):''}</span>`:'<span class="b erledigt">alles bezahlt</span>'}</h2>
+   <div class="tw"><table><tr><th>Posten</th><th>Fällig</th><th class="r">Betrag</th><th class="r">Laut Bank bezahlt</th><th class="r">Rest</th><th>Status</th><th>Beleg</th><th></th></tr>
+   ${rs.map(r=>{const p=paidFor(r.id),docs=S.docs.filter(x=>x.record_id===r.id).length,done=billState(r)==='bezahlt',rest=r.amount_chf==null?null:done?0:Math.max(r.amount_chf-p,0);return `<tr class="click" onclick="editRec('${r.id}')"><td>${esc(r.title)}<div class="sm mut">${esc((r.notes||'').slice(0,140))}</div></td><td class="num" style="${!done&&r.due_date&&r.due_date<t?'color:var(--red)':''}">${fd(r.due_date)}</td><td class="num r">${chf(r.amount_chf)}</td><td class="num r">${p?chf(p):'–'}</td><td class="num r"><b>${chf(rest)}</b></td><td>${sbadge(r.status)}${r.confirmed_on&&done?'<div class="sm mut">'+fd(r.confirmed_on)+'</div>':''}</td><td class="sm">${docs?docs+' Beleg'+(docs>1?'e':''):'<span style="color:var(--red)">kein Beleg</span>'}</td><td>${!done&&admin()?`<button class="btn xs sec" onclick="event.stopPropagation();billPaid('${r.id}')">Als bezahlt markieren</button>`:''}</td></tr>`}).join('')}</table></div></div>`}).join('')||'<div class="card"><p class="mut">Keine Posten in dieser Ansicht.</p></div>'}
+  ${admin()?`<div class="card" style="margin-top:14px"><h2>Wohin laut Bank Geld geflossen ist</h2><p class="sm mut">Ausgänge vom GmbH-Konto nach Empfänger, ohne interne Transfers. Empfängernamen gibt es nur für Buchungen ab 03.08.2026; die älteren Auszüge nennen keine.</p><div class="tw" style="max-height:50vh;overflow:auto"><table><tr><th>Empfänger</th><th class="r">Zahlungen</th><th class="r">Total bezahlt</th><th>Letzte Zahlung</th></tr>${payees.map(([n,p])=>`<tr><td>${esc(n)}</td><td class="r">${p.n}</td><td class="num r">${chf(p.s)}</td><td class="num">${fd(p.last)}</td></tr>`).join('')||'<tr><td colspan="4" class="mut">Keine Zahlungen gefunden.</td></tr>'}</table></div></div>`:''}`);
+  $('#bq').onchange=e=>{f.q=e.target.value;vBills()};
+}
+async function billPaid(id){const r=S.records.find(x=>x.id===id);if(!confirm('«'+r.title+'»'+(r.amount_chf!=null?' über '+chf(r.amount_chf):'')+' als bezahlt markieren?\n\nEs wird keine Zahlung ausgelöst. Nur bestätigen, wenn die Zahlung wirklich erfolgt ist.'))return;
+  const {data,error}=await sb.from('lp_records').update({status:'erledigt',confirmed_on:today(),notes:(r.notes||'')+' Als bezahlt markiert am '+fd(today())+' von '+S.name+'.'}).eq('id',id).eq('updated_at',r.updated_at).select('id');
+  if(error)return fail(error);if(!data.length)toast('Inzwischen geändert, bitte nochmals versuchen',1);else toast('Als bezahlt markiert');refresh()}
 
 /* ---------- Bestellungen ---------- */
 const priceRec=()=>S.records.find(r=>r.details?.preise_provisorisch);

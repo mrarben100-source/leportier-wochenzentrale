@@ -406,7 +406,7 @@ function vDocs(){
   const miss=S.docs.filter(d=>!d.storage_path).length;
   M(`<h1>Dokumentenarchiv</h1>
   ${miss?`<div class="note red"><b>${miss} von ${S.docs.length} Einträgen sind nur Verweise.</b> Die Originaldatei liegt noch nicht im Archiv. Über «Datei hinzufügen» kann das PDF nachgereicht werden; nicht auffindbare Dateien als «Fehlt» markieren.</div>`:''}
-  ${canEdit()?`<div class="card"><h2>Dokument hochladen</h2><div class="bar"><input type="file" id="up" accept="application/pdf,image/jpeg,image/png,text/csv" multiple><select id="upc">${cats.slice(0,11).map(c=>`<option>${esc(c)}</option>`).join('')}</select><input type="date" id="upd" title="Belegdatum"><button class="btn" onclick="upload()">Hochladen</button>${admin()?'<button class="btn sec" onclick="docDedupe()">Dubletten bereinigen</button>':''}</div><p class="sm mut">Mehrere Dateien auf einmal möglich. Hat eine Datei denselben Namen wie ein bestehender Verweis, wird sie dort hinterlegt; die gewählte Kategorie gilt nur für Dateien ohne Verweis. Privater Speicher, max. 25 MB pro Datei. Bankauszüge, Löhne, Arbeitsverträge, Betreibungen und Buchhaltung sind nur für Admin abrufbar.</p></div>`:''}
+  ${canEdit()?`<div class="card"><h2>Dokument hochladen</h2><div class="bar"><input type="file" id="up" accept=".pdf,.jpg,.jpeg,.png,.csv,.zip,application/pdf,image/jpeg,image/png,text/csv,application/zip" multiple><select id="upc">${cats.slice(0,11).map(c=>`<option>${esc(c)}</option>`).join('')}</select><input type="date" id="upd" title="Belegdatum"><button class="btn" onclick="upload()">Hochladen</button>${admin()?'<button class="btn sec" onclick="docDedupe()">Dubletten bereinigen</button>':''}</div><p class="sm mut">Mehrere Dateien oder eine ZIP-Datei auf einmal möglich; ZIP-Dateien werden automatisch entpackt. Hat eine Datei denselben Namen wie ein bestehender Verweis, wird sie dort hinterlegt; die gewählte Kategorie gilt nur für Dateien ohne Verweis. Privater Speicher, max. 25 MB pro Datei. Bankauszüge, Löhne, Arbeitsverträge, Betreibungen und Buchhaltung sind nur für Admin abrufbar.</p></div>`:''}
   <div class="bar"><input id="dq" placeholder="Suchen…" value="${esc(f.q)}"><select id="dc"><option value="">Alle Kategorien</option>${cats.map(c=>`<option${c===f.cat?' selected':''}>${esc(c)}</option>`).join('')}</select><select id="ds">${opts({da:'Datei vorhanden',fehlt:'Datei nicht im Archiv',missing:'Als fehlend markiert',duplicate_review:'Duplikat prüfen'},f.st,'Alle')}</select><input type="date" id="df" value="${f.from}"> bis <input type="date" id="dt" value="${f.to}"></div>
   <div class="card"><div class="tw"><table><tr><th>Datei</th><th>Kategorie</th><th>Datum</th><th>Status</th><th></th></tr>
   ${a.map(d=>{const i=S.docs.indexOf(d);return `<tr><td>${esc(d.file_name)}<div class="sm mut">${esc(d.notes)}</div></td><td>${esc(d.category)}</td><td class="num">${fd(d.doc_date||d.modified_on)}</td><td>${d.storage_path?'<span class="b erledigt">Im Archiv</span>':d.state==='missing'?'<span class="b zu_pruefen">Fehlt</span>':'<span class="b in_bearbeitung">Nur Verweis</span>'}</td>
@@ -418,8 +418,9 @@ const safe=n=>n.normalize('NFKD').replace(/[^\w.\-]+/g,'_').slice(-90);
 const spath=(cat,name)=>(DOCCAT[cat]||'sonstiges')+'/'+crypto.randomUUID().slice(0,8)+'-'+safe(name);
 const nname=n=>String(n||'').toLowerCase().normalize('NFC').replace(/\s*\(\d+\)(?=\.[^.]+$)/,'').replace(/[\s_]+/g,'_');
 async function upload(){
-  const fs=[...$('#up').files],cat=$('#upc').value,dd=$('#upd').value||null;if(!fs.length)return toast('Bitte Datei(en) wählen',1);
-  const res={zug:[],neu:[],dub:[],abw:[],err:[]};let i=0;
+  const cat=$('#upc').value,dd=$('#upd').value||null,res={zug:[],neu:[],dub:[],abw:[],err:[]};let i=0,fs;
+  try{fs=await unzipAll([...$('#up').files],res)}catch(e){return fail(e)}
+  if(!fs.length&&!res.err.length)return toast('Bitte Datei(en) wählen',1);
   for(const f of fs){toast('Lade hoch '+(++i)+' / '+fs.length+' …');
     const k=nname(f.name),same=S.docs.filter(d=>nname(d.file_name)===k);
     if(same.some(d=>d.storage_path&&+d.size_bytes===f.size)){res.dub.push(f.name);continue}
@@ -437,6 +438,20 @@ async function upload(){
   ${res.err.length?`<div class="note red"><b>${res.err.length} fehlgeschlagen</b>${li(res.err)}</div>`:''}
   <p><b>${offen.length}</b> Verweise sind weiterhin ohne Datei.</p>
   <div class="bar" style="justify-content:flex-end"><button class="btn">Schliessen</button></div></form>`;dlg.showModal();route();
+}
+const MIME={pdf:'application/pdf',jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',csv:'text/csv'};
+async function unzipAll(files,res){
+  const out=[];
+  for(const f of files){
+    if(!/\.zip$/i.test(f.name)){out.push(f);continue}
+    if(!window.JSZip)await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';s.onload=ok;s.onerror=()=>no(new Error('ZIP-Modul konnte nicht geladen werden'));document.head.appendChild(s)});
+    toast('Entpacke '+f.name+' …');const z=await JSZip.loadAsync(f);
+    for(const e of Object.values(z.files)){if(e.dir)continue;const name=e.name.split('/').pop(),ext=(name.split('.').pop()||'').toLowerCase();
+      if(/(^|\/)__MACOSX\//.test(e.name)||name.startsWith('.'))continue;
+      if(!MIME[ext]){res.err.push(name+' (Format .'+ext+' wird nicht unterstützt)');continue}
+      out.push(new File([await e.async('blob')],name,{type:MIME[ext]}))}
+  }
+  return out;
 }
 async function docDedupe(){
   const g={};S.docs.filter(d=>d.storage_path).forEach(d=>(g[nname(d.file_name)+'|'+d.size_bytes]??=[]).push(d));

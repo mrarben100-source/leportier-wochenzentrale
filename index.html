@@ -477,7 +477,7 @@ async function saveTx(out,bal){
   toast((data?.length||0)+' neu importiert, '+(out.length-(data?.length||0))+' bereits vorhanden');refresh();
 }
 /* ---------- Valiant-PDF ---------- */
-const RULES=[[/stardrinks/i,'Getränke','lieferantenbestellung'],[/heineken|feldschl/i,'Getränke','lieferantenbestellung'],[/ewb|energie wasser/i,'Energie','normal'],[/axa|versicherung/i,'Versicherung','normal'],[/bernische pensionskasse|\(bpk\)/i,'Miete','normal'],[/gastrosocial|pensionskasse|ahv|ausgleichskasse/i,'Sozialversicherung','normal'],[/sumup|twint|payrexx|eventfrog|worldline/i,'Karten- und Onlineeinnahmen','normal'],[/betreibungsamt|inkasso|eos schweiz/i,'Betreibung / Inkasso','normal'],[/facebk|facebook|meta /i,'Werbung','normal'],[/kartengeb|setgeb|kontof|spesen des/i,'Bankgebühren','normal'],[/hostpoint/i,'IT','normal'],[/suisa/i,'SUISA','normal'],[/security/i,'Security','event'],[/sunrise|swisscom/i,'Telekom','normal'],[/treuhand/i,'Treuhand','normal'],[/jt intl|jti/i,'Sponsoring','normal'],[/lohn|salär|salaer/i,'Lohn','lohn'],[/bdo|miete/i,'Miete','normal']];
+const RULES=[[/stardrinks/i,'Getränke','lieferantenbestellung'],[/heineken|feldschl/i,'Getränke','lieferantenbestellung'],[/ewb|energie wasser/i,'Energie','normal'],[/axa|versicherung/i,'Versicherung','normal'],[/bernische pensionskasse|\(bpk\)/i,'Miete','normal'],[/gastrosocial|pensionskasse|ahv|ausgleichskasse/i,'Sozialversicherung','normal'],[/sumup|twint|payrexx|eventfrog|worldline/i,'Karten- und Onlineeinnahmen','normal'],[/betreibungsamt|inkasso|eos schweiz/i,'Betreibung / Inkasso','normal'],[/facebk|facebook|meta /i,'Werbung','normal'],[/kartengeb|setgeb|kontof|spesen des|habenzins|sollzins|buchungsspesen|kontoabschluss|^gebühr/i,'Bankgebühren','normal'],[/hostpoint/i,'IT','normal'],[/suisa/i,'SUISA','normal'],[/security/i,'Security','event'],[/sunrise|swisscom/i,'Telekom','normal'],[/treuhand/i,'Treuhand','normal'],[/jt intl|jti/i,'Sponsoring','normal'],[/lohn|salär|salaer/i,'Lohn','lohn'],[/bdo|miete/i,'Miete','normal']];
 const pnum=s=>+String(s).replace(/['’]/g,'');
 const dmy=s=>s.slice(6,10)+'-'+s.slice(3,5)+'-'+s.slice(0,2);
 const SKIP=[/^Valiant Bank AG$/,/^Bundesplatz 4$/,/^3001 Bern$/,/^CHE-[\d.]+ MWST$/,/^(Datum\/Zeit|Vertrag|Konto|IBAN|Bezeichnung|Inhaber\/in)\s/,/^Kontoauszug$/,/^Datum\s+Buchungstext/,/Angaben ohne Gewähr/,/^Seite \d+/];
@@ -493,7 +493,7 @@ function parseValiant(lines){
     if(SKIP.some(x=>x.test(l)))continue;
     if(R.einzel&&(m=l.match(/^(\d\d\.\d\d\.\d{4})\s+(.*?)\s*([A-Z]{3})\s+(-?[\d'’]+\.\d\d)\s+(-?[\d'’]+\.\d\d)$/))){
       const a=pnum(m[4]),s=pnum(m[5]),dl=Math.round((s-(prev??0))*100)/100;
-      const fee=m[3]==='CHF'&&Math.abs(Math.abs(dl)-a)>0.006;if(!dl)R.warn.push('Buchung ohne Saldoänderung: '+m[1]+' '+m[2].slice(0,40));
+      const fee=m[3]==='CHF'&&Math.abs(Math.abs(dl)-a)>0.006;if(!dl){if(cur)cur.det.push('+ '+m[2].trim()+' '+m[3]+' '+m[4]);continue}
       prev=s;cur={einzel:true,date:dmy(m[1]),val:null,title:m[2].trim()+(m[3]==='CHF'?'':' ('+m[3]+' '+m[4]+')'),amt:dl,bal:s,det:[],note:fee?'Im Auszug ausgewiesen: CHF '+m[4]+'; dem Konto belastet bzw. gutgeschrieben inkl. Spesen: CHF '+Math.abs(dl).toFixed(2)+'.':''};tx.push(cur);continue}
     if(m=l.match(G)||l.match(T)){const a=pnum(m[4]),s=pnum(m[5]);let sign=0;
       if(prev!=null){const d=Math.round((s-prev)*100)/100;if(Math.abs(Math.abs(d)-a)<0.006)sign=d<0?-1:1}

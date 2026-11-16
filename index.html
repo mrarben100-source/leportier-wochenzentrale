@@ -406,7 +406,7 @@ function vDocs(){
   const miss=S.docs.filter(d=>!d.storage_path).length;
   M(`<h1>Dokumentenarchiv</h1>
   ${miss?`<div class="note red"><b>${miss} von ${S.docs.length} Einträgen sind nur Verweise.</b> Die Originaldatei liegt noch nicht im Archiv. Über «Datei hinzufügen» kann das PDF nachgereicht werden; nicht auffindbare Dateien als «Fehlt» markieren.</div>`:''}
-  ${canEdit()?`<div class="card"><h2>Dokument hochladen</h2><div class="bar"><input type="file" id="up" accept="application/pdf,image/jpeg,image/png,text/csv" multiple><select id="upc">${cats.slice(0,11).map(c=>`<option>${esc(c)}</option>`).join('')}</select><input type="date" id="upd" title="Belegdatum"><button class="btn" onclick="upload()">Hochladen</button></div><p class="sm mut">Privater Speicher, max. 25 MB pro Datei. Bankauszüge, Löhne, Arbeitsverträge, Betreibungen und Buchhaltung sind nur für Admin abrufbar.</p></div>`:''}
+  ${canEdit()?`<div class="card"><h2>Dokument hochladen</h2><div class="bar"><input type="file" id="up" accept="application/pdf,image/jpeg,image/png,text/csv" multiple><select id="upc">${cats.slice(0,11).map(c=>`<option>${esc(c)}</option>`).join('')}</select><input type="date" id="upd" title="Belegdatum"><button class="btn" onclick="upload()">Hochladen</button>${admin()?'<button class="btn sec" onclick="docDedupe()">Dubletten bereinigen</button>':''}</div><p class="sm mut">Mehrere Dateien auf einmal möglich. Hat eine Datei denselben Namen wie ein bestehender Verweis, wird sie dort hinterlegt; die gewählte Kategorie gilt nur für Dateien ohne Verweis. Privater Speicher, max. 25 MB pro Datei. Bankauszüge, Löhne, Arbeitsverträge, Betreibungen und Buchhaltung sind nur für Admin abrufbar.</p></div>`:''}
   <div class="bar"><input id="dq" placeholder="Suchen…" value="${esc(f.q)}"><select id="dc"><option value="">Alle Kategorien</option>${cats.map(c=>`<option${c===f.cat?' selected':''}>${esc(c)}</option>`).join('')}</select><select id="ds">${opts({da:'Datei vorhanden',fehlt:'Datei nicht im Archiv',missing:'Als fehlend markiert',duplicate_review:'Duplikat prüfen'},f.st,'Alle')}</select><input type="date" id="df" value="${f.from}"> bis <input type="date" id="dt" value="${f.to}"></div>
   <div class="card"><div class="tw"><table><tr><th>Datei</th><th>Kategorie</th><th>Datum</th><th>Status</th><th></th></tr>
   ${a.map(d=>{const i=S.docs.indexOf(d);return `<tr><td>${esc(d.file_name)}<div class="sm mut">${esc(d.notes)}</div></td><td>${esc(d.category)}</td><td class="num">${fd(d.doc_date||d.modified_on)}</td><td>${d.storage_path?'<span class="b erledigt">Im Archiv</span>':d.state==='missing'?'<span class="b zu_pruefen">Fehlt</span>':'<span class="b in_bearbeitung">Nur Verweis</span>'}</td>
@@ -416,11 +416,35 @@ function vDocs(){
 }
 const safe=n=>n.normalize('NFKD').replace(/[^\w.\-]+/g,'_').slice(-90);
 const spath=(cat,name)=>(DOCCAT[cat]||'sonstiges')+'/'+crypto.randomUUID().slice(0,8)+'-'+safe(name);
+const nname=n=>String(n||'').toLowerCase().normalize('NFC').replace(/\s*\(\d+\)(?=\.[^.]+$)/,'').replace(/[\s_]+/g,'_');
 async function upload(){
-  const fs=[...$('#up').files],cat=$('#upc').value,dd=$('#upd').value||null;if(!fs.length)return toast('Bitte Datei wählen',1);let ok=0;
-  for(const f of fs){const p=spath(cat,f.name);const u=await sb.storage.from('lp-dokumente').upload(p,f,{contentType:f.type});if(u.error){fail(u.error);continue}
-    const {error}=await sb.from('lp_documents').insert({library_file_id:'upload_'+crypto.randomUUID(),file_name:f.name,category:cat,state:'in_supabase',storage_path:p,doc_date:dd,modified_on:today(),size_bytes:f.size});error?fail(error):ok++}
-  if(ok){toast(ok+' Datei(en) hochgeladen');refresh()}
+  const fs=[...$('#up').files],cat=$('#upc').value,dd=$('#upd').value||null;if(!fs.length)return toast('Bitte Datei(en) wählen',1);
+  const res={zug:[],neu:[],dub:[],abw:[],err:[]};let i=0;
+  for(const f of fs){toast('Lade hoch '+(++i)+' / '+fs.length+' …');
+    const k=nname(f.name),same=S.docs.filter(d=>nname(d.file_name)===k);
+    if(same.some(d=>d.storage_path&&+d.size_bytes===f.size)){res.dub.push(f.name);continue}
+    const ref=same.find(d=>!d.storage_path),c=ref?ref.category:cat,p=spath(c,f.name),u=await sb.storage.from('lp-dokumente').upload(p,f,{contentType:f.type||'application/pdf'});
+    if(u.error){res.err.push(f.name+' ('+u.error.message+')');continue}
+    if(ref){const diff=ref.size_bytes!=null&&+ref.size_bytes!==f.size,{error}=await sb.from('lp_documents').update({storage_path:p,state:'in_supabase',size_bytes:f.size,notes:(ref.notes?ref.notes+' ':'')+(diff?'Dateigrösse weicht vom Verweis ab ('+ref.size_bytes+' → '+f.size+' Bytes), bitte prüfen.':'')}).eq('library_file_id',ref.library_file_id);
+      if(error){res.err.push(f.name+' ('+error.message+')');continue}ref.storage_path=p;res.zug.push(f.name);if(diff)res.abw.push(f.name)}
+    else{const r=await sb.from('lp_documents').insert({library_file_id:'upload_'+crypto.randomUUID(),file_name:f.name,category:cat,state:'in_supabase',storage_path:p,doc_date:dd,modified_on:today(),size_bytes:f.size}).select().single();
+      if(r.error){res.err.push(f.name+' ('+r.error.message+')');continue}S.docs.push(r.data);res.neu.push(f.name)}}
+  await load();const offen=S.docs.filter(d=>!d.storage_path),li=a=>a.length?'<ul class="sm" style="margin:4px 0 10px;padding-left:18px">'+a.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'';
+  dlg.innerHTML=`<form method="dialog"><h2>Upload abgeschlossen: ${fs.length} Datei(en)</h2>
+  <p><b>${res.zug.length}</b> einem bestehenden Verweis zugeordnet${res.abw.length?' (davon '+res.abw.length+' mit abweichender Dateigrösse)':''}</p>${li(res.abw.map(x=>'Grösse weicht ab: '+x))}
+  <p><b>${res.neu.length}</b> neu angelegt unter «${esc(cat)}» (kein Verweis mit diesem Namen)</p>${li(res.neu)}
+  <p><b>${res.dub.length}</b> übersprungen, weil dieselbe Datei schon im Archiv liegt</p>${li(res.dub)}
+  ${res.err.length?`<div class="note red"><b>${res.err.length} fehlgeschlagen</b>${li(res.err)}</div>`:''}
+  <p><b>${offen.length}</b> Verweise sind weiterhin ohne Datei.</p>
+  <div class="bar" style="justify-content:flex-end"><button class="btn">Schliessen</button></div></form>`;dlg.showModal();route();
+}
+async function docDedupe(){
+  const g={};S.docs.filter(d=>d.storage_path).forEach(d=>(g[nname(d.file_name)+'|'+d.size_bytes]??=[]).push(d));
+  const del=Object.values(g).filter(a=>a.length>1).flatMap(a=>a.sort((x,y)=>(x.created_at||'').localeCompare(y.created_at||'')).slice(1));
+  if(!del.length)return toast('Keine Dubletten gefunden');
+  if(!confirm(del.length+' Dublette(n) gefunden (gleicher Name und gleiche Grösse). Die jeweils älteste Kopie bleibt erhalten.\n\nEntfernt werden:\n'+del.map(d=>'• '+d.file_name).join('\n')))return;
+  let n=0;for(const d of del){const s=await sb.storage.from('lp-dokumente').remove([d.storage_path]);if(s.error){fail(s.error);continue}const {error}=await sb.from('lp_documents').delete().eq('library_file_id',d.library_file_id);error?fail(error):n++}
+  toast(n+' Dublette(n) entfernt');refresh();
 }
 function docAttach(i){const d=S.docs[i],inp=$('#att');inp.onchange=async()=>{const f=inp.files[0];if(!f)return;const p=spath(d.category,f.name);const u=await sb.storage.from('lp-dokumente').upload(p,f,{contentType:f.type});if(u.error)return fail(u.error);
   const {error}=await sb.from('lp_documents').update({storage_path:p,state:'in_supabase',size_bytes:f.size}).eq('library_file_id',d.library_file_id);error?fail(error):(toast('Datei hinterlegt'),refresh())};inp.click()}

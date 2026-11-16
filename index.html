@@ -424,8 +424,9 @@ async function upload(){
   if(!fs.length&&!res.err.length)return toast('Bitte Datei(en) wählen',1);
   for(const f of fs){toast('Lade hoch '+(++i)+' / '+fs.length+' …');
     const k=nname(f.name),same=S.docs.filter(d=>nname(d.file_name)===k);
-    if(same.some(d=>d.storage_path&&+d.size_bytes===f.size)){res.dub.push(f.name);continue}
-    const refs=same.filter(d=>!d.storage_path),sc=d=>(d.file_name===f.name?2:0)+(+d.size_bytes===f.size?1:0),ref=refs.sort((a,b)=>sc(b)-sc(a))[0],c=ref?ref.category:cat,p=spath(c,f.name),u=await sb.storage.from('lp-dokumente').upload(p,f,{contentType:f.type||'application/pdf'});
+    const refs=same.filter(d=>!d.storage_path),sc=d=>(d.file_name===f.name?2:0)+(+d.size_bytes===f.size?1:0),best=refs.sort((a,b)=>sc(b)-sc(a))[0],exact=best&&best.file_name===f.name;
+    if(!exact&&same.some(d=>d.storage_path&&+d.size_bytes===f.size)){res.dub.push(f.name);continue}
+    const ref=best,c=ref?ref.category:cat,p=spath(c,f.name),u=await sb.storage.from('lp-dokumente').upload(p,f,{contentType:f.type||'application/pdf'});
     if(u.error){res.err.push(f.name+' ('+u.error.message+')');continue}
     if(ref){const diff=ref.size_bytes!=null&&+ref.size_bytes!==f.size,{error}=await sb.from('lp_documents').update({storage_path:p,state:'in_supabase',size_bytes:f.size,notes:(ref.notes?ref.notes+' ':'')+(diff?'Dateigrösse weicht vom Verweis ab ('+ref.size_bytes+' → '+f.size+' Bytes), bitte prüfen.':'')}).eq('library_file_id',ref.library_file_id);
       if(error){res.err.push(f.name+' ('+error.message+')');continue}ref.storage_path=p;res.zug.push(f.name);if(diff)res.abw.push(f.name)}

@@ -229,8 +229,8 @@ function vFin(){
   <div class="card kpi"><div class="l">Einnahmen (Filter)</div><div class="v num" style="color:var(--grn)">${chf(inn)}</div></div>
   <div class="card kpi"><div class="l">Ausgaben (Filter)</div><div class="v num" style="color:var(--red)">${chf(out)}</div></div>
   <div class="card kpi"><div class="l">Zu prüfen</div><div class="v">${S.tx.filter(t=>t.review_state==='zu_pruefen').length}</div><div class="sm mut">${S.tx.filter(t=>t.review_state==='duplikat').length} als Duplikat markiert</div></div></div>
-  <div class="card"><h2>Bankdaten importieren</h2><p class="sm mut">Valiant-Export als CSV: Bewegungen werden eingelesen, Doppelte übersprungen und alles zuerst als «Zu prüfen» markiert. Bankauszüge als PDF werden im Archiv abgelegt (Kategorie Bankauszüge); die automatische PDF-Auswertung folgt im nächsten Schritt.</p>
-  <div class="bar"><input type="file" id="csv" accept=".csv,text/csv"><button class="btn" onclick="importCsv()">CSV importieren</button><a class="btn sec" style="text-decoration:none;padding:7px 12px;border:1px solid var(--acc);border-radius:8px;color:var(--acc)" href="#dokumente">PDF ins Archiv</a></div></div>
+  <div class="card"><h2>Bankdaten importieren</h2><p class="sm mut">Valiant-Export als Excel (.xlsx) oder CSV: Bewegungen werden eingelesen, Doppelte übersprungen und alles zuerst als «Zu prüfen» markiert. Bankauszüge als PDF werden im Archiv abgelegt (Kategorie Bankauszüge); die automatische PDF-Auswertung folgt im nächsten Schritt.</p>
+  <div class="bar"><input type="file" id="csv" accept=".xlsx,.xls,.csv,text/csv"><button class="btn" onclick="importCsv()">Excel/CSV importieren</button><a class="btn sec" style="text-decoration:none;padding:7px 12px;border:1px solid var(--acc);border-radius:8px;color:var(--acc)" href="#dokumente">PDF ins Archiv</a></div></div>
   <div class="card" style="margin-top:12px"><h2>Bericht</h2><div class="bar"><select id="ggrp"><option value="m"${f.grp==='m'?' selected':''}>pro Monat</option><option value="w"${f.grp==='w'?' selected':''}>pro Woche</option></select><button class="btn sec" onclick="print()">Drucken / PDF</button></div>
   ${Object.keys(g).length?`<div class="tw"><table><tr><th>Zeitraum</th><th class="r">Einnahmen</th><th class="r">Ausgaben</th><th class="r">Saldo</th><th class="r">Buchungen</th></tr>${Object.entries(g).sort((x,y)=>y[1].s.localeCompare(x[1].s)).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num r">${chf(v.in)}</td><td class="num r">${chf(v.out)}</td><td class="num r"><b>${chf(v.in-v.out)}</b></td><td class="r">${v.n}</td></tr>`).join('')}</table></div>`:'<p class="mut sm">Noch keine Bankbewegungen importiert.</p>'}</div>
   <div class="card" style="margin-top:12px"><h2>Bankbewegungen</h2><div class="bar"><input type="date" id="gfrom" value="${f.from}"> bis <input type="date" id="gto" value="${f.to}"><input id="gq" placeholder="Suchen…" value="${esc(f.q)}"><select id="grv">${opts(RV,f.rv,'Alle')}</select></div>
@@ -257,10 +257,19 @@ function csvRows(txt){const first=txt.split(/\r?\n/).find(l=>/datum/i.test(l))||
   if(c||row.length){row.push(c);rows.push(row)}return rows}
 const RULES=[[/stardrinks/i,'Getränke','lieferantenbestellung'],[/heineken|feldschl/i,'Getränke','lieferantenbestellung'],[/ewb|energie wasser/i,'Energie','normal'],[/axa|versicherung/i,'Versicherung','normal'],[/gastrosocial|ahv|ausgleichskasse/i,'Sozialversicherung','normal'],[/sumup|twint|payrexx|eventfrog|worldline/i,'Karten- und Onlineeinnahmen','normal'],[/lohn|salär|salaer/i,'Lohn','lohn'],[/bdo|miete/i,'Miete','normal'],[/betreibung/i,'Betreibung','normal']];
 async function importCsv(){
-  const file=$('#csv').files[0];if(!file)return toast('Bitte CSV-Datei wählen',1);
-  let txt=await file.text();if(txt.includes('�'))txt=new TextDecoder('windows-1252').decode(await file.arrayBuffer());
-  const rows=csvRows(txt),hi=rows.findIndex(r=>r.some(c=>/datum/i.test(c)));if(hi<0)return toast('Keine Kopfzeile mit «Datum» gefunden',1);
-  const H=rows[hi].map(h=>h.trim().toLowerCase()),col=(...re)=>H.findIndex(h=>re.some(x=>x.test(h)));
+  const file=$('#csv').files[0];if(!file)return toast('Bitte Excel- oder CSV-Datei wählen',1);
+  let rows;
+  if(/\.xlsx?$/i.test(file.name)){
+    try{if(!window.XLSX)await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';s.onload=ok;s.onerror=()=>no(new Error('Excel-Modul konnte nicht geladen werden'));document.head.appendChild(s)});
+      const wb=XLSX.read(await file.arrayBuffer(),{cellDates:true});
+      rows=wb.SheetNames.flatMap(n=>XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:''})).map(r=>r.map(c=>c instanceof Date?iso(new Date(c.getTime()+432e5)):String(c)));
+    }catch(e){return fail(e)}
+  }else{
+    let txt=await file.text();if(txt.includes('\ufffd'))txt=new TextDecoder('windows-1252').decode(await file.arrayBuffer());
+    rows=csvRows(txt);
+  }
+  const hi=rows.findIndex(r=>r.some(c=>/datum/i.test(c)));if(hi<0)return toast('Keine Kopfzeile mit «Datum» gefunden',1);
+  const H=rows[hi].map(h=>String(h).trim().toLowerCase()),col=(...re)=>H.findIndex(h=>re.some(x=>x.test(h)));
   const cD=col(/buchungsdatum/,/^datum/,/datum/),cV=col(/valuta/),cT=col(/buchungstext|beschreibung|^text|avisierungstext|mitteilung|details/),cB=col(/belastung|soll/),cG=col(/gutschrift|haben/),cA=col(/^betrag/,/betrag/),cS=col(/saldo/);
   if(cD<0||(cA<0&&cB<0&&cG<0))return toast('Spalten für Datum oder Betrag nicht erkannt. Bitte Datei an Claude senden.',1);
   const seen={},out=[];

@@ -89,7 +89,7 @@ async function boot(){
   const {data:m}=await sb.from('lp_members').select('role,display_name').eq('user_id',S.user.id).maybeSingle();
   if(!m) return root.innerHTML=`<div class="login"><div class="card"><h1>Zugang noch nicht freigeschaltet</h1><p>Angemeldet als <b>${esc(S.user.email)}</b>. Dein Konto muss zuerst von Arben freigeschaltet werden.</p><button class="btn sec" onclick="logout()">Abmelden</button></div></div>`;
   S.role=m.role;S.name=m.display_name||S.user.email;
-  await load();shell();route();autoMail();
+  await load();shell();route();autoMail();setInterval(autoMail,120000);
 }
 function loginView(msg){
   root.innerHTML=`<div class="login"><div class="card"><h1>Le Portier N°35</h1><p class="mut">Wochenzentrale – Anmeldung</p>
@@ -497,13 +497,17 @@ async function mailTake(uid,auto){
   return log;
 }
 async function autoMail(){
-  if(!admin()||S.autoRan)return;S.autoRan=true;
+  if(!admin()||S.autoBusy||dlg.open||document.hidden)return;S.autoBusy=true;
+  try{
   const {data,error}=await sb.functions.invoke('lp-mail',{body:{limit:40}});if(error||!data||data.error)return;S.mail=data;
   const todo=data.messages.filter(m=>m.attachments.some(a=>/pdf/i.test(a.type+a.name)||(/csv/i.test(a.type+a.name)&&/^tagesabschluss/i.test(a.name)))&&!mailDone(m)).reverse(),log=[];
   for(const m of todo)log.push(...await mailTake(m.uid,true));
-  S.autoLog=log;S.autoAt=new Date();if(log.length){await load();toast(log.length+' Schritt(e) aus E-Mails automatisch erledigt')}route();
+  const first=!S.autoAt,k=location.hash.slice(1)||'uebersicht',typing=/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName||'');
+  S.autoLog=[...log,...(S.autoLog||[])].slice(0,30);S.autoAt=new Date();if(log.length){await load();toast(log.length+' Schritt(e) aus E-Mails automatisch erledigt')}
+  if(!dlg.open&&!typing&&(first||log.length||k==='uebersicht'||k==='email'))route();
+  }finally{S.autoBusy=false}
 }
-const autoBox=()=>S.autoAt?`<div class="note${S.autoLog.length?'':' '}"><b>Automatische E-Mail-Verarbeitung ${S.autoAt.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'})} Uhr:</b> ${S.autoLog.length?'<ul style="margin:6px 0 0;padding-left:18px">'+S.autoLog.map(l=>'<li>'+esc(l)+'</li>').join('')+'</ul>':'keine neuen Anhänge.'}</div>`:(admin()?'<p class="mut sm">E-Mail-Posteingang wird geprüft…</p>':'');
+const autoBox=()=>S.autoAt?`<div class="note${S.autoLog.length?'':' '}"><b>Posteingang zuletzt geprüft um ${S.autoAt.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'})} Uhr (automatisch alle 2 Minuten).</b> ${S.autoLog.length?'Seit dem Öffnen erledigt:'+'<ul style="margin:6px 0 0;padding-left:18px">'+S.autoLog.map(l=>'<li>'+esc(l)+'</li>').join('')+'</ul>':'Keine neuen Anhänge.'}</div>`:(admin()?'<p class="mut sm">E-Mail-Posteingang wird geprüft…</p>':'');
 const mailRecent=()=>{const a=S.docs.filter(d=>/^mail_/.test(d.library_file_id)).sort((x,y)=>(y.created_at||'').localeCompare(x.created_at||'')).slice(0,6);return a.length?'<h3 style="margin-top:10px">Zuletzt aus E-Mails archiviert</h3>'+a.map(d=>`<div class="sm" style="padding:4px 0;border-bottom:1px solid var(--line)">${fd((d.created_at||'').slice(0,10))} · ${esc(d.file_name)} <span class="mut">(${esc(d.category)})</span></div>`).join(''):''};
 /* ---------- Stempeluhr / Lohn ---------- */
 const MON=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];

@@ -175,13 +175,14 @@ function vList(key){
   a=a.filter(r=>(!q||(r.title+' '+r.notes+' '+(r.responsible||'')).toLowerCase().includes(q))&&(!f.st||r.status===f.st)&&(!f.pr||r.priority===f.pr)&&(!f.who||(r.responsible||'').includes(f.who))&&(f.done||f.st||open(r)));
   a.sort((x,y)=>(PR[x.priority]||9)-(PR[y.priority]||9)||(x.due_date||'9').localeCompare(y.due_date||'9'));
   const rec=key==='aufgaben'?`<div class="card" style="margin-top:14px"><h2>Wiederkehrende Aufgaben</h2><div class="tw"><table><tr><th>Nächste Fälligkeit</th><th>Aufgabe</th><th>Rhythmus</th><th>Verantwortlich</th><th></th></tr>${S.recurring.filter(r=>r.active).map(r=>`<tr><td class="num">${fd(r.next_due)}</td><td>${esc(r.title)}<div class="mut sm">${esc(r.notes)}</div></td><td>${r.cadence==='weekly'?'wöchentlich':'monatlich'}</td><td>${esc(r.responsible||'')}</td><td>${admin()?`<button class="btn xs sec" onclick="recDone('${r.id}')">Erledigt, weiter</button>`:''}</td></tr>`).join('')}</table></div></div>`:'';
-  const hint=key==='lieferanten'?`<div class="note">Lieferantenbestellungen und Schuldenrückzahlungen werden getrennt geführt. Eine bezahlte Bestellung reduziert keine ältere Forderung. Beträge mit Status «Zu prüfen» sind nicht bestätigt.</div>`:key==='events'&&canEdit()?`<div class="card"><h2>BF-POS-Tagesabschluss</h2><p class="sm mut">Abschlüsse aus dem E-Mail-Posteingang werden über «Ins Archiv» automatisch dem Event des Tages zugeordnet. Hier kannst du CSV-Dateien auch von Hand hochladen.</p><div class="bar"><input type="file" id="posf" accept=".csv,text/csv" multiple><button class="btn" onclick="posUpload()">Tagesabschluss übernehmen</button></div></div>`:key==='personal'?`<div class="note">Personalplanung und Stunden laufen weiter in der Stempeluhr (separates Projekt, noch nicht angebunden). Hier stehen Lohn- und Vertragspendenzen.</div>`:'';
+  const hint=key==='lieferanten'?`<div class="note">Lieferantenbestellungen und Schuldenrückzahlungen werden getrennt geführt. Eine bezahlte Bestellung reduziert keine ältere Forderung. Beträge mit Status «Zu prüfen» sind nicht bestätigt.</div>`:key==='events'&&canEdit()?`<div class="card"><h2>BF-POS-Tagesabschluss</h2><p class="sm mut">Abschlüsse aus dem E-Mail-Posteingang werden über «Ins Archiv» automatisch dem Event des Tages zugeordnet. Hier kannst du CSV-Dateien auch von Hand hochladen.</p><div class="bar"><input type="file" id="posf" accept=".csv,text/csv" multiple><button class="btn" onclick="posUpload()">Tagesabschluss übernehmen</button></div></div>`:key==='personal'?(admin()?`<div class="card"><h2>Stunden und Lohnabrechnungen aus der Stempeluhr</h2><div class="bar"><input type="month" id="stm" value="${S.st?.monat||today().slice(0,7)}" onchange="stLoad(this.value)"><span class="sm mut">Nur lesend; an der Stempeluhr wird nichts verändert.</span></div><div id="stbox"></div></div><h2 style="margin-top:16px">Pendenzen Personal</h2>`:'<div class="note">Stunden und Lohnabrechnungen sind nur für Admin sichtbar.</div>'):'';
   M(`<h1>${V.t}</h1>${hint}<div class="bar"><input id="fq" placeholder="Suchen…" value="${esc(f.q)}"><select id="fst">${opts(ST,f.st,'Alle Status')}</select><select id="fpr">${opts({hoch:'Priorität 1',mittel:'Priorität 2',niedrig:'Priorität 3'},f.pr,'Alle Prioritäten')}</select><select id="fwho">${opts(Object.fromEntries(PEOPLE.map(p=>[p,p])),f.who,'Alle Personen')}</select>
   <label class="sm"><input type="checkbox" id="fdone"${f.done?' checked':''}> Erledigte zeigen</label>${canEdit()?`<button class="btn" onclick="editRec(null,'${V.n}')">+ Neu</button>`:''}</div>
   <div class="card"><div class="tw"><table><tr><th>P</th><th>Titel</th><th>Verantwortlich</th><th>Fällig</th><th class="r">Betrag</th><th>Status</th></tr>
   ${a.map(r=>{const p=paidFor(r.id),ev=r.category==='event'?evRes(r):null;return `<tr class="click" onclick="editRec('${r.id}')"><td>${pbadge(r.priority)}</td><td><b>${esc(r.title)}</b> <span class="b g">${esc(CAT[r.category])}</span>${r.details?.art==='lieferantenbestellung'?' <span class="b g">Bestellung</span>':r.details?.art==='altforderung'?' <span class="b zu_pruefen">Altforderung</span>':''}<div class="mut sm">${esc(r.notes)}</div>${r.category==='event'&&kSum(r).n?`<div class="sm">Kassenabschlüsse: ${kSum(r).n} · Karten ${chf(kSum(r).unbar)} · Bar ${chf(kSum(r).bar)} · Trinkgeld ${chf(kSum(r).tg)}</div>`:''}${ev!=null?`<div class="sm">Ergebnis laut erfassten Werten: <b>${chf(ev)}</b></div>`:''}</td><td>${esc(r.responsible||'–')}</td><td class="num">${fd(r.due_date)}</td><td class="num r">${chf(r.amount_chf)}${p&&r.amount_chf!=null?`<div class="sm mut">bezahlt ${chf(p)}<br>Rest ${chf(Math.max(r.amount_chf-p,0))}</div>`:''}</td><td>${sbadge(r.status)}</td></tr>`}).join('')||'<tr><td colspan="6" class="mut">Keine Einträge.</td></tr>'}</table></div></div>${rec}`);
   const set=()=>{Object.assign(f,{q:$('#fq').value,st:$('#fst').value,pr:$('#fpr').value,who:$('#fwho').value,done:$('#fdone').checked});vList(key);const i=$('#fq');i.focus();i.setSelectionRange(f.q.length,f.q.length)};
   $('#fq').oninput=set;['#fst','#fpr','#fwho','#fdone'].forEach(s=>$(s).onchange=set);
+  if(key==='personal'&&admin()){S.st&&S.st.monat===$('#stm').value?stShow():stLoad($('#stm').value)}
 }
 const kSum=r=>(r.details?.kassen||[]).reduce((a,k)=>({bar:a.bar+k.bar,unbar:a.unbar+k.unbar,sonst:a.sonst+k.sonstige,netto:a.netto+k.netto,tg:a.tg+k.trinkgeld,brutto:a.brutto+k.brutto,n:a.n+1}),{bar:0,unbar:0,sonst:0,netto:0,tg:0,brutto:0,n:0});
 function evRes(r){const d=r.details||{},n=k=>+d[k]||0,ks=kSum(r);if(!ks.n&&!['ein_ticket','ein_karte','ein_twint','ein_bar','kosten_getraenke','kosten_weitere'].some(k=>d[k]!=null&&d[k]!==''))return null;return ks.netto+n('ein_ticket')+n('ein_karte')+n('ein_twint')+n('ein_bar')-n('kosten_getraenke')-n('kosten_weitere')}
@@ -504,6 +505,67 @@ async function autoMail(){
 }
 const autoBox=()=>S.autoAt?`<div class="note${S.autoLog.length?'':' '}"><b>Automatische E-Mail-Verarbeitung ${S.autoAt.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'})} Uhr:</b> ${S.autoLog.length?'<ul style="margin:6px 0 0;padding-left:18px">'+S.autoLog.map(l=>'<li>'+esc(l)+'</li>').join('')+'</ul>':'keine neuen Anhänge.'}</div>`:(admin()?'<p class="mut sm">E-Mail-Posteingang wird geprüft…</p>':'');
 const mailRecent=()=>{const a=S.docs.filter(d=>/^mail_/.test(d.library_file_id)).sort((x,y)=>(y.created_at||'').localeCompare(x.created_at||'')).slice(0,6);return a.length?'<h3 style="margin-top:10px">Zuletzt aus E-Mails archiviert</h3>'+a.map(d=>`<div class="sm" style="padding:4px 0;border-bottom:1px solid var(--line)">${fd((d.created_at||'').slice(0,10))} · ${esc(d.file_name)} <span class="mut">(${esc(d.category)})</span></div>`).join(''):''};
+/* ---------- Stempeluhr / Lohn ---------- */
+const MON=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+const LOHN={premium:['alicia','tuana'],satzPremium:20.44,satz:18.77,ferien:10.65,feiertag:2.27,dm:8.33,ahv:5.30,alv:1.10,ktg:1.13};
+const tMin=t=>{if(!t)return null;const [h,m]=String(t).split(':').map(Number);return h*60+m};
+const stBrutto=(a,b)=>{const i=tMin(a),o=tMin(b);if(i===null||o===null)return null;let d=o-i;if(d<0)d+=1440;return d>1200?null:d};
+const stPause=(b,p)=>p!=null&&p>0?p:b>=540?60:b>=420?30:b>=330?15:0;
+function calcLohn(ma,stamps){
+  const vn=(ma.vorname||'').toLowerCase().trim(),mine=stamps.filter(s=>(s.name||'').toLowerCase()===vn);let min=0,offen=0;
+  mine.forEach(s=>{const b=stBrutto(s.in_time,s.out_time);if(b>0)min+=b-stPause(b,s.pause_min);else offen++});
+  const h=min/60,satz=LOHN.premium.includes(vn)?LOHN.satzPremium:LOHN.satz,arb=h*satz,fer=arb*LOHN.ferien/100,fei=arb*LOHN.feiertag/100,dm=(arb+fer+fei)*LOHN.dm/100,brutto=arb+fer+fei+dm;
+  const ahv=brutto*LOHN.ahv/100,alv=brutto*LOHN.alv/100,ktg=brutto*LOHN.ktg/100,isB=ma.auslaenderausweis==='B-Ausweis',qs=isB&&ma.quellensteuer_satz?parseFloat(ma.quellensteuer_satz):0,qst=isB?brutto*qs/100:0,abz=ahv+alv+ktg+qst;
+  return{h,satz,arb,fer,fei,dm,brutto,ahv,alv,ktg,isB,qs,qst,abz,netto:brutto-abz,einsaetze:mine.length,offen};
+}
+async function stLoad(m){
+  $('#stbox').innerHTML='<p class="mut">Lade Stempeluhr…</p>';
+  const {data,error}=await sb.functions.invoke('lp-stempeluhr',{body:{monat:m}});let d=data;
+  if(error){try{d=await error.context.json()}catch(_){d={error:error.message}}}
+  if(d?.error)return $('#stbox').innerHTML='<div class="note red">Stempeluhr nicht erreichbar: '+esc(d.error)+'</div>';
+  S.st=d;stShow();
+}
+function stShow(){
+  const d=S.st,[y,mo]=d.monat.split('-').map(Number),rows=d.mitarbeiter.map(ma=>({ma,l:calcLohn(ma,d.stamps)})).filter(r=>r.l.einsaetze),known=new Set(d.mitarbeiter.map(m=>(m.vorname||'').toLowerCase().trim())),
+    fremd=[...new Set(d.stamps.map(s=>s.name).filter(n=>!known.has((n||'').toLowerCase().trim())))],sum=k=>rows.reduce((a,r)=>a+r.l[k],0);
+  $('#stbox').innerHTML=`${rows.length?`<div class="tw"><table><tr><th>Mitarbeiter/in</th><th class="r">Einsätze</th><th class="r">Stunden</th><th class="r">Ansatz</th><th class="r">Brutto</th><th class="r">Abzüge</th><th class="r">Netto</th><th></th></tr>
+  ${rows.map((r,i)=>{const doc=S.docs.find(x=>x.library_file_id==='lohn_'+d.monat+'_'+r.ma.id);return `<tr><td>${esc(r.ma.vorname)} ${esc(r.ma.nachname||'')}${r.l.isB?' <span class="b g">Quellensteuer '+r.l.qs.toFixed(2)+'%</span>':''}${r.l.offen?'<div class="sm" style="color:var(--red)">'+r.l.offen+' Einsatz ohne Ausstempeln – nicht gezählt</div>':''}</td><td class="r">${r.l.einsaetze}</td><td class="num r">${r.l.h.toFixed(2)}</td><td class="num r">${r.l.satz.toFixed(2)}</td><td class="num r">${chf(r.l.brutto)}</td><td class="num r">${chf(r.l.abz)}</td><td class="num r"><b>${chf(r.l.netto)}</b></td><td style="white-space:nowrap"><button class="btn xs" onclick="lohnPdf(${r.ma.id})">${doc?'Neu erstellen':'Abrechnung erstellen'}</button>${doc?` <button class="btn xs sec" onclick="docOpen(${S.docs.indexOf(doc)})">Ansehen</button>`:''}</td></tr>`}).join('')}
+  <tr><td><b>Total ${MON[mo-1]} ${y}</b></td><td></td><td class="num r"><b>${sum('h').toFixed(2)}</b></td><td></td><td class="num r"><b>${chf(sum('brutto'))}</b></td><td class="num r"><b>${chf(sum('abz'))}</b></td><td class="num r"><b>${chf(sum('netto'))}</b></td><td><button class="btn xs sec" onclick="lohnAlle()">Alle erstellen</button></td></tr></table></div>`:'<p class="mut sm">Keine Stempelzeiten in diesem Monat.</p>'}
+  ${fremd.length?`<div class="note sm">Stempelzeiten ohne Mitarbeiter-Stammdaten (keine Abrechnung möglich): ${fremd.map(esc).join(', ')}</div>`:''}
+  <p class="sm mut">Berechnung wie in der Stempeluhr-Admin-App: Ansatz CHF ${LOHN.satz} (Alicia, Tuana CHF ${LOHN.satzPremium}), Ferien ${LOHN.ferien}%, Feiertage ${LOHN.feiertag}%, 13. Monatslohn ${LOHN.dm}%, AHV ${LOHN.ahv}%, ALV ${LOHN.alv}%, KTG ${LOHN.ktg}%, Quellensteuer nur bei B-Ausweis. Die Abrechnung wird als PDF im Archiv unter «Lohnabrechnungen» abgelegt. Es wird nichts ausbezahlt.</p>`;
+}
+async function ensureJsPdf(){if(window.jspdf)return;await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';s.onload=ok;s.onerror=()=>no(new Error('PDF-Modul konnte nicht geladen werden'));document.head.appendChild(s)})}
+async function lohnPdf(maId,quiet){
+  try{await ensureJsPdf();const d=S.st,ma=d.mitarbeiter.find(m=>m.id===maId),l=calcLohn(ma,d.stamps),[y,mo]=d.monat.split('-').map(Number),f=v=>v.toFixed(2),name=((ma.vorname||'')+' '+(ma.nachname||'')).trim();
+    const doc=new jspdf.jsPDF({unit:'mm',format:'a4'}),L=18,R=192;let yy=22;
+    const T=(t,x,o={})=>doc.text(String(t),x,yy,o),B=b=>doc.setFont('helvetica',b?'bold':'normal'),line=()=>{doc.setDrawColor(190);doc.line(L,yy+2,R,yy+2)};
+    B(1);doc.setFontSize(14);T('Le Portier 35',L);yy+=6;B(0);doc.setFontSize(10);T('PrimeVibes GmbH',L);yy+=5;T('Aarbergergasse 35, 3011 Bern',L);
+    yy+=14;B(1);doc.setFontSize(15);T('Lohnabrechnung '+MON[mo-1]+' '+y,105,{align:'center'});
+    yy+=13;doc.setFontSize(9);B(1);T('Mitarbeiter',L);T('AHV-Nr.',130);B(0);T(ma.ahv_nr||'–',R,{align:'right'});
+    yy+=5;doc.setFontSize(10);B(1);T(name,L);doc.setFontSize(9);T('Ausweis',130);B(0);T(ma.auslaenderausweis||'–',R,{align:'right'});
+    yy+=5;T(ma.strasse||'',L);B(1);T('Geburtsdatum',130);B(0);T(ma.geburtsdatum||'–',R,{align:'right'});
+    yy+=5;T(((ma.plz||'')+' '+(ma.ort||'')).trim(),L);
+    yy+=12;B(1);T('Bezeichnung',L);T('Satz',118,{align:'right'});T('Pro Stunde',155,{align:'right'});T('Pro Monat',R,{align:'right'});line();B(0);
+    const row=(a,b,c,e,bold)=>{yy+=7;B(bold);T(a,L);B(0);if(b)T(b,118,{align:'right'});if(c)T(c,155,{align:'right'});B(bold);T(e,R,{align:'right'});B(0)};
+    row('Arbeitslohn','CHF '+f(l.satz)+'/h','CHF '+f(l.satz),'CHF '+f(l.arb));
+    row('Ferienentschädigung '+f(LOHN.ferien)+'%',f(LOHN.ferien)+'%','CHF '+f(l.satz*LOHN.ferien/100),'CHF '+f(l.fer));
+    row('Feiertagsentschädigung '+f(LOHN.feiertag)+'%',f(LOHN.feiertag)+'%','CHF '+f(l.satz*LOHN.feiertag/100),'CHF '+f(l.fei));
+    row('13. Monatslohn '+f(LOHN.dm)+'% (auf Arb.+Ferien+Feiertag)',f(LOHN.dm)+'%','','CHF '+f(l.dm));line();
+    row('Bruttolohn ('+f(l.h)+' h)','','','CHF '+f(l.brutto),1);
+    yy+=10;B(1);T('Abzüge Arbeitnehmer',L);line();B(0);
+    row('AHV/IV/EO '+f(LOHN.ahv)+'%',f(LOHN.ahv)+'%','','-CHF '+f(l.ahv));row('ALV '+f(LOHN.alv)+'%',f(LOHN.alv)+'%','','-CHF '+f(l.alv));row('KTG '+f(LOHN.ktg)+'%',f(LOHN.ktg)+'%','','-CHF '+f(l.ktg));
+    if(l.isB)row('Quellensteuer Tarif A0N ('+f(l.qs)+'%)',f(l.qs)+'%','','-CHF '+f(l.qst));line();
+    row('Total Abzüge','','','-CHF '+f(l.abz),1);
+    yy+=10;doc.setFontSize(12);B(1);T('Nettolohn',L);T('CHF '+f(l.netto),R,{align:'right'});doc.setFontSize(9);
+    yy+=14;B(1);T('Stunden-Übersicht',L);line();B(0);yy+=7;T('Gearbeitete Netto-Stunden',L);T(f(l.h)+' h',R,{align:'right'});
+    yy=285;doc.setFontSize(8);doc.setTextColor(110);T('Zahltag '+new Date(y,mo,1).toLocaleDateString('de-CH')+' | Le Portier 35 / PrimeVibes GmbH, Aarbergergasse 35, 3011 Bern',105,{align:'center'});
+    const blob=doc.output('blob'),fn='Lohnabrechnung_'+MON[mo-1]+'_'+y+'_'+name.replace(/\s+/g,'_')+'.pdf',id='lohn_'+d.monat+'_'+ma.id,path='vertraulich/lohnabrechnungen/'+d.monat+'_'+ma.id+'_'+safe(name)+'.pdf';
+    const u=await sb.storage.from('lp-dokumente').upload(path,blob,{contentType:'application/pdf',upsert:true});if(u.error)throw u.error;
+    const r=await sb.from('lp_documents').upsert({library_file_id:id,file_name:fn,category:'Lohnabrechnungen',state:'in_supabase',storage_path:path,doc_date:d.monat+'-'+String(new Date(y,mo,0).getDate()).padStart(2,'0'),modified_on:today(),size_bytes:blob.size,notes:'Aus Stempeluhr erzeugt am '+fd(today())+': '+f(l.h)+' h, Brutto CHF '+f(l.brutto)+', Netto CHF '+f(l.netto)},{onConflict:'library_file_id'});if(r.error)throw r.error;
+    if(!quiet){toast('Lohnabrechnung '+name+' im Archiv abgelegt');await load();stShow()}return true;
+  }catch(e){fail(e);return false}
+}
+async function lohnAlle(){const d=S.st,ids=d.mitarbeiter.filter(m=>calcLohn(m,d.stamps).h>0).map(m=>m.id);if(!confirm(ids.length+' Lohnabrechnungen für '+d.monat+' erstellen und im Archiv ablegen? Bestehende werden ersetzt.'))return;let n=0;for(const id of ids)if(await lohnPdf(id,true))n++;toast(n+' Lohnabrechnungen im Archiv');await load();stShow()}
 function vLog(){
   const lab={insert:'Neu',update:'Geändert',delete:'Gelöscht'},tn={lp_records:'Eintrag',lp_recurring:'Wiederkehrend',lp_documents:'Dokument',lp_bank_tx:'Bankbuchung',lp_bank_balance:'Kontostand'};
   M(`<h1>Änderungsprotokoll</h1><p class="mut">Jede Änderung wird automatisch mit Zeitpunkt und altem/neuem Wert gespeichert. Angezeigt werden die letzten 150.</p><div class="card"><div class="tw"><table><tr><th>Zeit</th><th>Bereich</th><th>Aktion</th><th>Betroffen</th><th>Geänderte Felder</th></tr>

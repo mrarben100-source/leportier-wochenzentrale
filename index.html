@@ -175,15 +175,57 @@ function vList(key){
   a=a.filter(r=>(!q||(r.title+' '+r.notes+' '+(r.responsible||'')).toLowerCase().includes(q))&&(!f.st||r.status===f.st)&&(!f.pr||r.priority===f.pr)&&(!f.who||(r.responsible||'').includes(f.who))&&(f.done||f.st||open(r)));
   a.sort((x,y)=>(PR[x.priority]||9)-(PR[y.priority]||9)||(x.due_date||'9').localeCompare(y.due_date||'9'));
   const rec=key==='aufgaben'?`<div class="card" style="margin-top:14px"><h2>Wiederkehrende Aufgaben</h2><div class="tw"><table><tr><th>Nächste Fälligkeit</th><th>Aufgabe</th><th>Rhythmus</th><th>Verantwortlich</th><th></th></tr>${S.recurring.filter(r=>r.active).map(r=>`<tr><td class="num">${fd(r.next_due)}</td><td>${esc(r.title)}<div class="mut sm">${esc(r.notes)}</div></td><td>${r.cadence==='weekly'?'wöchentlich':'monatlich'}</td><td>${esc(r.responsible||'')}</td><td>${admin()?`<button class="btn xs sec" onclick="recDone('${r.id}')">Erledigt, weiter</button>`:''}</td></tr>`).join('')}</table></div></div>`:'';
-  const hint=key==='lieferanten'?`<div class="note">Lieferantenbestellungen und Schuldenrückzahlungen werden getrennt geführt. Eine bezahlte Bestellung reduziert keine ältere Forderung. Beträge mit Status «Zu prüfen» sind nicht bestätigt.</div>`:key==='personal'?`<div class="note">Personalplanung und Stunden laufen weiter in der Stempeluhr (separates Projekt, noch nicht angebunden). Hier stehen Lohn- und Vertragspendenzen.</div>`:'';
+  const hint=key==='lieferanten'?`<div class="note">Lieferantenbestellungen und Schuldenrückzahlungen werden getrennt geführt. Eine bezahlte Bestellung reduziert keine ältere Forderung. Beträge mit Status «Zu prüfen» sind nicht bestätigt.</div>`:key==='events'&&canEdit()?`<div class="card"><h2>BF-POS-Tagesabschluss</h2><p class="sm mut">Abschlüsse aus dem E-Mail-Posteingang werden über «Ins Archiv» automatisch dem Event des Tages zugeordnet. Hier kannst du CSV-Dateien auch von Hand hochladen.</p><div class="bar"><input type="file" id="posf" accept=".csv,text/csv" multiple><button class="btn" onclick="posUpload()">Tagesabschluss übernehmen</button></div></div>`:key==='personal'?`<div class="note">Personalplanung und Stunden laufen weiter in der Stempeluhr (separates Projekt, noch nicht angebunden). Hier stehen Lohn- und Vertragspendenzen.</div>`:'';
   M(`<h1>${V.t}</h1>${hint}<div class="bar"><input id="fq" placeholder="Suchen…" value="${esc(f.q)}"><select id="fst">${opts(ST,f.st,'Alle Status')}</select><select id="fpr">${opts({hoch:'Priorität 1',mittel:'Priorität 2',niedrig:'Priorität 3'},f.pr,'Alle Prioritäten')}</select><select id="fwho">${opts(Object.fromEntries(PEOPLE.map(p=>[p,p])),f.who,'Alle Personen')}</select>
   <label class="sm"><input type="checkbox" id="fdone"${f.done?' checked':''}> Erledigte zeigen</label>${canEdit()?`<button class="btn" onclick="editRec(null,'${V.n}')">+ Neu</button>`:''}</div>
   <div class="card"><div class="tw"><table><tr><th>P</th><th>Titel</th><th>Verantwortlich</th><th>Fällig</th><th class="r">Betrag</th><th>Status</th></tr>
-  ${a.map(r=>{const p=paidFor(r.id),ev=r.category==='event'?evRes(r):null;return `<tr class="click" onclick="editRec('${r.id}')"><td>${pbadge(r.priority)}</td><td><b>${esc(r.title)}</b> <span class="b g">${esc(CAT[r.category])}</span>${r.details?.art==='lieferantenbestellung'?' <span class="b g">Bestellung</span>':r.details?.art==='altforderung'?' <span class="b zu_pruefen">Altforderung</span>':''}<div class="mut sm">${esc(r.notes)}</div>${ev!=null?`<div class="sm">Ergebnis laut erfassten Werten: <b>${chf(ev)}</b></div>`:''}</td><td>${esc(r.responsible||'–')}</td><td class="num">${fd(r.due_date)}</td><td class="num r">${chf(r.amount_chf)}${p&&r.amount_chf!=null?`<div class="sm mut">bezahlt ${chf(p)}<br>Rest ${chf(Math.max(r.amount_chf-p,0))}</div>`:''}</td><td>${sbadge(r.status)}</td></tr>`}).join('')||'<tr><td colspan="6" class="mut">Keine Einträge.</td></tr>'}</table></div></div>${rec}`);
+  ${a.map(r=>{const p=paidFor(r.id),ev=r.category==='event'?evRes(r):null;return `<tr class="click" onclick="editRec('${r.id}')"><td>${pbadge(r.priority)}</td><td><b>${esc(r.title)}</b> <span class="b g">${esc(CAT[r.category])}</span>${r.details?.art==='lieferantenbestellung'?' <span class="b g">Bestellung</span>':r.details?.art==='altforderung'?' <span class="b zu_pruefen">Altforderung</span>':''}<div class="mut sm">${esc(r.notes)}</div>${r.category==='event'&&kSum(r).n?`<div class="sm">Kassenabschlüsse: ${kSum(r).n} · Karten ${chf(kSum(r).unbar)} · Bar ${chf(kSum(r).bar)} · Trinkgeld ${chf(kSum(r).tg)}</div>`:''}${ev!=null?`<div class="sm">Ergebnis laut erfassten Werten: <b>${chf(ev)}</b></div>`:''}</td><td>${esc(r.responsible||'–')}</td><td class="num">${fd(r.due_date)}</td><td class="num r">${chf(r.amount_chf)}${p&&r.amount_chf!=null?`<div class="sm mut">bezahlt ${chf(p)}<br>Rest ${chf(Math.max(r.amount_chf-p,0))}</div>`:''}</td><td>${sbadge(r.status)}</td></tr>`}).join('')||'<tr><td colspan="6" class="mut">Keine Einträge.</td></tr>'}</table></div></div>${rec}`);
   const set=()=>{Object.assign(f,{q:$('#fq').value,st:$('#fst').value,pr:$('#fpr').value,who:$('#fwho').value,done:$('#fdone').checked});vList(key);const i=$('#fq');i.focus();i.setSelectionRange(f.q.length,f.q.length)};
   $('#fq').oninput=set;['#fst','#fpr','#fwho','#fdone'].forEach(s=>$(s).onchange=set);
 }
-function evRes(r){const d=r.details||{},n=k=>+d[k]||0;if(!['ein_ticket','ein_karte','ein_twint','ein_bar','kosten_getraenke','kosten_weitere'].some(k=>d[k]!=null&&d[k]!==''))return null;return n('ein_ticket')+n('ein_karte')+n('ein_twint')+n('ein_bar')-n('kosten_getraenke')-n('kosten_weitere')}
+const kSum=r=>(r.details?.kassen||[]).reduce((a,k)=>({bar:a.bar+k.bar,unbar:a.unbar+k.unbar,sonst:a.sonst+k.sonstige,netto:a.netto+k.netto,tg:a.tg+k.trinkgeld,brutto:a.brutto+k.brutto,n:a.n+1}),{bar:0,unbar:0,sonst:0,netto:0,tg:0,brutto:0,n:0});
+function evRes(r){const d=r.details||{},n=k=>+d[k]||0,ks=kSum(r);if(!ks.n&&!['ein_ticket','ein_karte','ein_twint','ein_bar','kosten_getraenke','kosten_weitere'].some(k=>d[k]!=null&&d[k]!==''))return null;return ks.netto+n('ein_ticket')+n('ein_karte')+n('ein_twint')+n('ein_bar')-n('kosten_getraenke')-n('kosten_weitere')}
+/* ---------- BF POS Tagesabschluss ---------- */
+function parseBfpos(txt){
+  const rows=csvRows(txt.replace(/^\ufeff/,''),','),K={quelle:'bfpos',methoden:[],mwst:[],produkte:[]},f=v=>{const n=parseFloat(v);return isNaN(n)?0:n};let sec='';
+  for(const r of rows){const a=(r[0]||'').trim();if(!a){sec='';continue}
+    if(a==='Methode'||a==='Satz'||a==='Produkt'){sec=a;continue}
+    if(sec==='Methode'){K.methoden.push({methode:a,anzahl:f(r[1]),netto:f(r[2]),trinkgeld:f(r[3]),total:f(r[4])});continue}
+    if(sec==='Satz'){K.mwst.push({satz:a,modus:r[1],brutto:f(r[2]),mwst:f(r[3]),netto:f(r[4])});continue}
+    if(sec==='Produkt'){K.produkte.push({name:a,menge:f(r[1]),umsatz:f(r[2])});continue}
+    if(a==='Tagesabschluss')K.betrieb=r[1];else if(a==='Terminal')K.terminal=r[1];else if(/^Zeitraum/.test(a)){K.von=r[1];K.bis=r[2]}else if(/^Abschluss/.test(a))K.abschluss=parseInt(r[1],10);
+    else if(/^BAR/.test(a))K.bar=f(r[1]);else if(/^UNBAR/.test(a))K.unbar=f(r[1]);else if(/^Sonstige/.test(a))K.sonstige=f(r[1]);else if(/^Umsatz/.test(a))K.netto=f(r[1]);else if(a==='Trinkgeld')K.trinkgeld=f(r[1]);else if(a==='Belege')K.belege=f(r[1]);else if(/^Total/.test(a))K.brutto=f(r[1])}
+  if(K.von&&!isNaN(new Date(K.von)))K.datum=new Date(K.von).toLocaleDateString('sv-SE',{timeZone:'Europe/Zurich'});
+  ['bar','unbar','sonstige','netto','trinkgeld','brutto'].forEach(k=>K[k]??=0);
+  const c=(x,y)=>Math.abs(x-y)<0.006;
+  K.ok=K.abschluss>0&&!!K.datum&&c(K.bar+K.unbar+K.sonstige,K.netto)&&c(K.netto+K.trinkgeld,K.brutto)&&(!K.produkte.length||c(K.produkte.reduce((s,p)=>s+p.umsatz,0),K.netto));
+  return K;
+}
+async function kasseAdd(K){
+  if(!K||!(K.abschluss>0)||!K.datum){toast('Tagesabschluss nicht lesbar',1);return false}
+  if(!K.ok&&!confirm('Abschluss #'+K.abschluss+': Die Summen in der Datei gehen nicht auf. Trotzdem übernehmen?'))return false;
+  let evs=S.records.filter(r=>r.category==='event'&&r.due_date===K.datum),ev=evs[0];
+  if(evs.length>1){const n=prompt('Am '+fd(K.datum)+' gibt es mehrere Events. Zu welchem gehört der Abschluss #'+K.abschluss+' ('+chf(K.brutto)+')?\n\n'+evs.map((e,i)=>(i+1)+') '+e.title).join('\n')+'\n\nNummer eingeben:','1');ev=evs[+n-1];if(!ev)return false}
+  if(!ev){const r=await sb.from('lp_records').insert({category:'event',title:'Event '+fd(K.datum)+' (aus Tagesabschluss)',status:'zu_pruefen',priority:'mittel',due_date:K.datum,responsible:'Levent',notes:'Automatisch aus BF-POS-Tagesabschluss angelegt. Eventname und weitere Angaben ergänzen.',details:{kassen:[K]}}).select().single();
+    if(r.error){fail(r.error);return false}S.records.push(r.data);toast('Neues Event für '+fd(K.datum)+' angelegt');return true}
+  const d={...(ev.details||{})},alt=d.kassen||[],ks=alt.filter(k=>!(k.abschluss===K.abschluss&&k.terminal===K.terminal));d.kassen=[...ks,K];
+  const {error}=await sb.from('lp_records').update({details:d}).eq('id',ev.id);if(error){fail(error);return false}
+  ev.details=d;toast('Abschluss #'+K.abschluss+(ks.length<alt.length?' aktualisiert':' übernommen')+': '+ev.title);return true;
+}
+async function posUpload(){const fs=[...$('#posf').files];if(!fs.length)return toast('Bitte CSV-Datei(en) wählen',1);for(const f of fs)await kasseAdd(parseBfpos(await f.text()));refresh()}
+function evPrint(id){
+  const r=S.records.find(x=>x.id===id),d=r.details||{},ks=d.kassen||[],s=kSum(r),P={};dlg.close();
+  ks.forEach(k=>k.produkte.forEach(p=>{P[p.name]??={m:0,u:0};P[p.name].m+=p.menge;P[p.name].u+=p.umsatz}));
+  const n=k=>+d[k]||0,ein=s.netto+n('ein_ticket')+n('ein_karte')+n('ein_twint')+n('ein_bar'),aus=n('kosten_getraenke')+n('kosten_weitere'),row=(l,v)=>`<tr><td>${l}</td><td class="num r">${v}</td></tr>`;
+  M(`<div class="bar"><button class="btn sec" onclick="route()">‹ Zurück</button><button class="btn" onclick="print()">Drucken / als PDF speichern</button></div>
+  <div class="card"><h1>Eventabrechnung: ${esc(r.title)}</h1><p class="mut">Datum ${fd(r.due_date)} · Verantwortlich ${esc(r.responsible||'–')} · Status ${esc(ST[r.status])} · erstellt am ${fd(today())}</p>
+  <div class="note">Vorläufig. Enthalten sind nur die erfassten Werte; Positionen ohne Angabe fehlen in der Rechnung.</div>
+  <h2>Organisation</h2><table>${EVF.filter(([k,,num])=>!num&&d[k]).map(([k,l])=>row(esc(l),esc(d[k]))).join('')||row('Keine Angaben erfasst','')}${d.personalstunden!=null?row('Personalstunden',esc(d.personalstunden)):''}</table>
+  <h2 style="margin-top:14px">Kassenabschlüsse (BF POS)</h2>${ks.length?`<div class="tw"><table><tr><th>Abschluss</th><th>Terminal</th><th class="r">Bar</th><th class="r">Karten</th><th class="r">Sonstige</th><th class="r">Umsatz</th><th class="r">Trinkgeld</th><th class="r">Total</th></tr>${ks.map(k=>`<tr><td>#${esc(k.abschluss)}</td><td class="sm">${esc(k.terminal)}</td><td class="num r">${chf(k.bar)}</td><td class="num r">${chf(k.unbar)}</td><td class="num r">${chf(k.sonstige)}</td><td class="num r">${chf(k.netto)}</td><td class="num r">${chf(k.trinkgeld)}</td><td class="num r">${chf(k.brutto)}</td></tr>`).join('')}<tr><td colspan="2"><b>Summe</b></td><td class="num r"><b>${chf(s.bar)}</b></td><td class="num r"><b>${chf(s.unbar)}</b></td><td class="num r"><b>${chf(s.sonst)}</b></td><td class="num r"><b>${chf(s.netto)}</b></td><td class="num r"><b>${chf(s.tg)}</b></td><td class="num r"><b>${chf(s.brutto)}</b></td></tr></table></div>`:'<p class="mut sm">Noch kein Tagesabschluss zugeordnet.</p>'}
+  ${Object.keys(P).length?`<h2 style="margin-top:14px">Verkaufte Produkte</h2><table><tr><th>Produkt</th><th class="r">Menge</th><th class="r">Umsatz</th></tr>${Object.entries(P).sort((a,b)=>b[1].u-a[1].u).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="r">${v.m}</td><td class="num r">${chf(v.u)}</td></tr>`).join('')}</table>`:''}
+  <h2 style="margin-top:14px">Ergebnis</h2><table>${row('Umsatz Kassenabschlüsse (ohne Trinkgeld)',chf(s.netto))}${[['ein_ticket','Ticketeinnahmen'],['ein_karte','Weitere Karteneinnahmen'],['ein_twint','TWINT-Einnahmen'],['ein_bar','Weitere Bareinnahmen']].filter(([k])=>d[k]!=null&&d[k]!=='').map(([k,l])=>row(l,chf(d[k]))).join('')}${row('<b>Einnahmen total</b>','<b>'+chf(ein)+'</b>')}${[['kosten_getraenke','Getränkekosten'],['kosten_weitere','Weitere Ausgaben']].filter(([k])=>d[k]!=null&&d[k]!=='').map(([k,l])=>row(l,'– '+chf(d[k]))).join('')}${row('<b>Ergebnis laut erfassten Werten</b>','<b>'+chf(ein-aus)+'</b>')}${row('Trinkgeld (nicht im Ergebnis)',chf(s.tg))}</table>
+  ${d.fehlende_belege?`<p><b>Fehlende Belege:</b> ${esc(d.fehlende_belege)}</p>`:''}${r.notes?`<p class="sm"><b>Notizen:</b> ${esc(r.notes)}</p>`:''}</div>`);
+}
 async function recDone(id){const r=S.recurring.find(x=>x.id===id);let n=r.next_due;if(r.cadence==='weekly')n=addDays(n,7);else{const d=new Date(n+'T12:00');d.setMonth(d.getMonth()+1);n=iso(d)}
   const {error}=await sb.from('lp_recurring').update({next_due:n}).eq('id',id);error?fail(error):(toast('Nächste Fälligkeit: '+fd(n)),refresh())}
 
@@ -203,7 +245,7 @@ function editRec(id,cat){
   <label class="w">Notizen<textarea name="notes">${esc(r.notes)}</textarea></label>
   <div class="w" id="evf" style="display:${r.category==='event'?'grid':'none'};grid-template-columns:1fr 1fr;gap:10px">${EVF.map(([k,l,n])=>`<label>${l}<input name="d_${k}" ${n?'type="number" step="0.01"':''} value="${esc(d[k]??'')}"></label>`).join('')}</div>
   </div>
-  ${docs.length?`<p class="sm"><b>Dokumente:</b> ${docs.map(x=>esc(x.file_name)).join(', ')}</p>`:''}${tx.length?`<p class="sm"><b>Zugeordnete Bankzahlungen:</b> ${tx.map(t=>fd(t.booking_date)+' '+chf(t.amount_chf)).join(' · ')}</p>`:''}
+  ${r.category==='event'&&id?`<p class="sm"><b>Kassenabschlüsse:</b> ${(d.kassen||[]).map(k=>'#'+esc(k.abschluss)+' '+chf(k.brutto)).join(' · ')||'keine'} – werden im Ergebnis automatisch mitgerechnet. <button type="button" class="btn xs sec" onclick="evPrint('${id}')">Eventabrechnung öffnen</button></p>`:''}${docs.length?`<p class="sm"><b>Dokumente:</b> ${docs.map(x=>esc(x.file_name)).join(', ')}</p>`:''}${tx.length?`<p class="sm"><b>Zugeordnete Bankzahlungen:</b> ${tx.map(t=>fd(t.booking_date)+' '+chf(t.amount_chf)).join(' · ')}</p>`:''}
   ${id?`<p class="sm mut">Zuletzt geändert ${new Date(r.updated_at).toLocaleString('de-CH')}${r.confirmed_on?' · bestätigt am '+fd(r.confirmed_on):''}</p>`:''}
   <div class="bar" style="justify-content:flex-end"><button class="btn sec" value="x" formnovalidate>Schliessen</button>${ro?'':'<button class="btn" value="s">Speichern</button>'}</div></form>`;
   const f=$('#rf');f.category.onchange=()=>$('#evf').style.display=f.category.value==='event'?'grid':'none';
@@ -252,7 +294,7 @@ async function newBal(){const d=prompt('Datum des Kontostands (TT.MM.JJJJ):',fd(
   const {error}=await sb.from('lp_bank_balance').insert({as_of:`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`,amount_chf:n,source:'Manuell erfasst von '+S.name});error?fail(error):(toast('Kontostand gespeichert'),refresh())}
 const num=s=>{s=String(s??'').replace(/[’'`\s]|CHF/g,'');if(/,\d{1,2}$/.test(s))s=s.replace(/\./g,'').replace(',','.');return s===''?NaN:+s};
 const pdate=s=>{s=String(s||'').trim();let m=s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);if(m)return `${m[3].length===2?'20'+m[3]:m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[0]:null};
-function csvRows(txt){const first=txt.split(/\r?\n/).find(l=>/datum/i.test(l))||'';const sep=(first.match(/;/g)||[]).length>=(first.match(/,/g)||[]).length?';':',';const rows=[];let row=[],c='',q=false;
+function csvRows(txt,sep){if(!sep){const first=txt.split(/\r?\n/).find(l=>/datum/i.test(l))||'';sep=(first.match(/;/g)||[]).length>=(first.match(/,/g)||[]).length?';':','}const rows=[];let row=[],c='',q=false;
   for(let i=0;i<txt.length;i++){const ch=txt[i];if(q){if(ch==='"'){if(txt[i+1]==='"'){c+='"';i++}else q=false}else c+=ch}else if(ch==='"')q=true;else if(ch===sep){row.push(c);c=''}else if(ch==='\n'){row.push(c);rows.push(row);row=[];c=''}else if(ch!=='\r')c+=ch}
   if(c||row.length){row.push(c);rows.push(row)}return rows}
 async function importCsv(){
@@ -411,7 +453,7 @@ async function mailLoad(){
 function mailShow(){
   const d=S.mail,inv=m=>/rechnung|invoice|faktura|mahnung|zahlungserinnerung|betreibung/i.test(m.subject)||m.attachments.some(a=>/pdf/i.test(a.type+a.name));
   $('#mbox').innerHTML=`<div class="card"><h2>${esc(d.mailbox)} · ${d.total} E-Mails im Posteingang, die neuesten ${d.messages.length}</h2><div class="tw"><table><tr><th>Datum</th><th>Absender</th><th>Betreff</th><th>Anhänge</th></tr>
-  ${d.messages.map(m=>`<tr><td class="num sm">${m.date?new Date(m.date).toLocaleString('de-CH',{dateStyle:'short',timeStyle:'short'}):''}</td><td>${m.seen?'':'<b>'}${esc(m.from_name||m.from_address)}${m.seen?'':'</b>'}<div class="sm mut">${esc(m.from_address)}</div></td><td>${esc(m.subject)} ${inv(m)?'<span class="b zu_pruefen">mögliche Rechnung</span>':''}</td><td class="sm">${m.attachments.map(a=>esc(a.name)).join('<br>')}${m.attachments.some(a=>/pdf|jpe?g|png/i.test(a.type+a.name))?`<br><button class="btn xs" onclick="mailTake(${+m.uid})">Ins Archiv</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="mut">Keine E-Mails.</td></tr>'}</table></div></div>`;
+  ${d.messages.map(m=>`<tr><td class="num sm">${m.date?new Date(m.date).toLocaleString('de-CH',{dateStyle:'short',timeStyle:'short'}):''}</td><td>${m.seen?'':'<b>'}${esc(m.from_name||m.from_address)}${m.seen?'':'</b>'}<div class="sm mut">${esc(m.from_address)}</div></td><td>${esc(m.subject)} ${inv(m)?'<span class="b zu_pruefen">mögliche Rechnung</span>':''}</td><td class="sm">${m.attachments.map(a=>esc(a.name)).join('<br>')}${m.attachments.some(a=>/pdf|jpe?g|png|csv/i.test(a.type+a.name))?`<br><button class="btn xs" onclick="mailTake(${+m.uid})">Ins Archiv</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="mut">Keine E-Mails.</td></tr>'}</table></div></div>`;
 }
 async function ensurePdf(){if(window.pdfjsLib)return;await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';s.onload=ok;s.onerror=()=>no(new Error('PDF-Modul konnte nicht geladen werden'));document.head.appendChild(s)});pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}
 function invGuess(lines){
@@ -429,13 +471,14 @@ async function mailTake(uid){
   const from=d.from_name||d.from_address,when=d.date?iso(new Date(d.date)):today(),src='E-Mail von '+from+' <'+d.from_address+'> vom '+fd(when)+': '+d.subject;let done=0;
   for(const f of d.files){
     if(f.skipped){toast(f.name+': '+f.skipped,1);continue}
-    const bytes=Uint8Array.from(atob(f.b64),c=>c.charCodeAt(0)),key='mail-'+uid+'-'+safe(f.name);
+    const bytes=Uint8Array.from(atob(f.b64),c=>c.charCodeAt(0)),key='mail-'+uid+'-'+safe(f.name),pos=/bfpos/i.test(d.from_address)||/^tagesabschluss/i.test(f.name),cat=pos?'Eventabrechnungen':'Lieferantenrechnungen';
+    if(/\.csv$/i.test(f.name)){if(pos&&await kasseAdd(parseBfpos(new TextDecoder().decode(bytes))))done++;continue}
     let doc=S.docs.find(x=>x.file_name===f.name&&+x.size_bytes===bytes.length&&x.storage_path);
-    if(!doc){const p=spath('Lieferantenrechnungen',f.name),u=await sb.storage.from('lp-dokumente').upload(p,new Blob([bytes],{type:f.type}),{contentType:f.type});if(u.error){fail(u.error);continue}
-      const r=await sb.from('lp_documents').insert({library_file_id:'mail_'+crypto.randomUUID(),file_name:f.name,category:'Lieferantenrechnungen',state:'in_supabase',storage_path:p,doc_date:when,modified_on:today(),size_bytes:bytes.length,notes:src.slice(0,300)}).select().single();
+    if(!doc){const p=spath(cat,f.name),u=await sb.storage.from('lp-dokumente').upload(p,new Blob([bytes],{type:f.type}),{contentType:f.type});if(u.error){fail(u.error);continue}
+      const r=await sb.from('lp_documents').insert({library_file_id:'mail_'+crypto.randomUUID(),file_name:f.name,category:cat,state:'in_supabase',storage_path:p,doc_date:when,modified_on:today(),size_bytes:bytes.length,notes:src.slice(0,300)}).select().single();
       if(r.error){fail(r.error);continue}doc=r.data}
     done++;
-    if(S.records.some(r=>r.source_key===key)||doc.record_id)continue;
+    if(pos||S.records.some(r=>r.source_key===key)||doc.record_id)continue;
     let g={amt:null,due:null};
     if(f.type==='application/pdf'){try{await ensurePdf();g=invGuess(await pdfLines(await pdfjsLib.getDocument({data:bytes.slice()}).promise))}catch(e){console.warn(e)}}
     if(!confirm('«'+f.name+'» liegt im Archiv.\n\nAls Rechnungsentwurf «Zu prüfen» erfassen?\nAbsender: '+from+'\nBetrag (aus PDF gelesen, ungeprüft): '+(g.amt!=null?chf(g.amt):'nicht erkannt')+'\nFällig: '+(g.due?fd(g.due):'nicht erkannt')))continue;
@@ -443,7 +486,7 @@ async function mailTake(uid){
     if(r.error){fail(r.error);continue}
     await sb.from('lp_documents').update({record_id:r.data.id}).eq('library_file_id',doc.library_file_id);
   }
-  toast(done?done+' Anhang/Anhänge im Archiv':'Keine PDF- oder Bildanhänge gefunden');await load();
+  if(!done)toast('Keine passenden Anhänge gefunden');await load();
 }
 function vLog(){
   const lab={insert:'Neu',update:'Geändert',delete:'Gelöscht'},tn={lp_records:'Eintrag',lp_recurring:'Wiederkehrend',lp_documents:'Dokument',lp_bank_tx:'Bankbuchung',lp_bank_balance:'Kontostand'};

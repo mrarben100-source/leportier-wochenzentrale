@@ -229,7 +229,7 @@ function vFin(){
   <div class="card kpi"><div class="l">Einnahmen (Filter)</div><div class="v num" style="color:var(--grn)">${chf(inn)}</div></div>
   <div class="card kpi"><div class="l">Ausgaben (Filter)</div><div class="v num" style="color:var(--red)">${chf(out)}</div></div>
   <div class="card kpi"><div class="l">Zu prüfen</div><div class="v">${S.tx.filter(t=>t.review_state==='zu_pruefen').length}</div><div class="sm mut">${S.tx.filter(t=>t.review_state==='duplikat').length} als Duplikat markiert</div></div></div>
-  <div class="card"><h2>Bankdaten importieren</h2><p class="sm mut">Valiant-Export als Excel (.xlsx) oder CSV: Bewegungen werden eingelesen, Doppelte übersprungen und alles zuerst als «Zu prüfen» markiert. Ein PDF-Auszug wird hier nur im Archiv unter «Bankauszüge» abgelegt, nicht ausgewertet.</p>
+  <div class="card"><h2>Bankdaten importieren</h2><p class="sm mut">Valiant-Kontoauszug als PDF, Excel (.xlsx) oder CSV: Die Buchungen werden ausgelesen, bereits vorhandene übersprungen und alles zuerst als «Zu prüfen» markiert. Ein PDF wird zusätzlich im Archiv unter «Bankauszüge» abgelegt.</p>
   <div class="bar"><input type="file" id="csv" accept=".xlsx,.xls,.csv,.pdf,text/csv,application/pdf"><button class="btn" onclick="importCsv()">Datei hochladen</button><a class="btn sec" style="text-decoration:none;padding:7px 12px;border:1px solid var(--acc);border-radius:8px;color:var(--acc)" href="#dokumente">PDF ins Archiv</a></div></div>
   <div class="card" style="margin-top:12px"><h2>Bericht</h2><div class="bar"><select id="ggrp"><option value="m"${f.grp==='m'?' selected':''}>pro Monat</option><option value="w"${f.grp==='w'?' selected':''}>pro Woche</option></select><button class="btn sec" onclick="print()">Drucken / PDF</button></div>
   ${Object.keys(g).length?`<div class="tw"><table><tr><th>Zeitraum</th><th class="r">Einnahmen</th><th class="r">Ausgaben</th><th class="r">Saldo</th><th class="r">Buchungen</th></tr>${Object.entries(g).sort((x,y)=>y[1].s.localeCompare(x[1].s)).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num r">${chf(v.in)}</td><td class="num r">${chf(v.out)}</td><td class="num r"><b>${chf(v.in-v.out)}</b></td><td class="r">${v.n}</td></tr>`).join('')}</table></div>`:'<p class="mut sm">Noch keine Bankbewegungen importiert.</p>'}</div>
@@ -255,12 +255,9 @@ const pdate=s=>{s=String(s||'').trim();let m=s.match(/^(\d{1,2})\.(\d{1,2})\.(\d
 function csvRows(txt){const first=txt.split(/\r?\n/).find(l=>/datum/i.test(l))||'';const sep=(first.match(/;/g)||[]).length>=(first.match(/,/g)||[]).length?';':',';const rows=[];let row=[],c='',q=false;
   for(let i=0;i<txt.length;i++){const ch=txt[i];if(q){if(ch==='"'){if(txt[i+1]==='"'){c+='"';i++}else q=false}else c+=ch}else if(ch==='"')q=true;else if(ch===sep){row.push(c);c=''}else if(ch==='\n'){row.push(c);rows.push(row);row=[];c=''}else if(ch!=='\r')c+=ch}
   if(c||row.length){row.push(c);rows.push(row)}return rows}
-const RULES=[[/stardrinks/i,'Getränke','lieferantenbestellung'],[/heineken|feldschl/i,'Getränke','lieferantenbestellung'],[/ewb|energie wasser/i,'Energie','normal'],[/axa|versicherung/i,'Versicherung','normal'],[/gastrosocial|ahv|ausgleichskasse/i,'Sozialversicherung','normal'],[/sumup|twint|payrexx|eventfrog|worldline/i,'Karten- und Onlineeinnahmen','normal'],[/lohn|salär|salaer/i,'Lohn','lohn'],[/bdo|miete/i,'Miete','normal'],[/betreibung/i,'Betreibung','normal']];
 async function importCsv(){
   const file=$('#csv').files[0];if(!file)return toast('Bitte Excel- oder CSV-Datei wählen',1);
-  if(/\.pdf$/i.test(file.name)){const p=spath('Bankauszüge',file.name),u=await sb.storage.from('lp-dokumente').upload(p,file,{contentType:'application/pdf'});if(u.error)return fail(u.error);
-    const {error}=await sb.from('lp_documents').insert({library_file_id:'upload_'+crypto.randomUUID(),file_name:file.name,category:'Bankauszüge',state:'in_supabase',storage_path:p,modified_on:today(),size_bytes:file.size});
-    if(error)return fail(error);toast('PDF im Archiv unter «Bankauszüge» abgelegt. Für die Buchungen bitte den Excel-Export importieren.');return refresh()}
+  if(/\.pdf$/i.test(file.name))return importPdf(file);
   let rows;
   if(/\.xlsx?$/i.test(file.name)){
     try{if(!window.XLSX)await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';s.onload=ok;s.onerror=()=>no(new Error('Excel-Modul konnte nicht geladen werden'));document.head.appendChild(s)});
@@ -279,11 +276,84 @@ async function importCsv(){
   rows.slice(hi+1).forEach(r=>{const d=pdate(r[cD]);if(!d)return;let a=cA>=0?num(r[cA]):NaN;if(isNaN(a)){const be=cB>=0?num(r[cB]):NaN,gu=cG>=0?num(r[cG]):NaN;a=!isNaN(gu)&&gu?Math.abs(gu):!isNaN(be)&&be?-Math.abs(be):NaN}if(isNaN(a)||!a)return;
     const desc=(cT>=0?r[cT]:r.filter((_,i)=>![cD,cV,cB,cG,cA,cS].includes(i)).join(' ')).replace(/\s+/g,' ').trim(),base=d+'|'+a.toFixed(2)+'|'+desc.toLowerCase().slice(0,80),n=seen[base]=(seen[base]||0)+1,rule=RULES.find(x=>x[0].test(desc));
     const s=cS>=0?num(r[cS]):NaN;
-    out.push({booking_date:d,value_date:cV>=0?pdate(r[cV]):null,description:desc,amount_chf:a,balance_chf:isNaN(s)?null:s,category:rule?rule[1]:'unkategorisiert',kind:rule?rule[2]:'normal',review_state:'zu_pruefen',dedupe_key:base+'|'+n,source_file:file.name,notes:n>1?'Gleiche Buchung mehrfach im Auszug – mögliche Doppelbuchung prüfen.':''})});
+    out.push({booking_date:d,value_date:cV>=0?pdate(r[cV]):null,description:desc,amount_chf:a,balance_chf:isNaN(s)?null:s,category:rule?rule[1]:'unkategorisiert',kind:rule?rule[2]:'normal',review_state:'zu_pruefen',dedupe_key:isNaN(s)?base+'|'+n:'b|'+d+'|'+a.toFixed(2)+'|'+s.toFixed(2),source_file:file.name,notes:n>1?'Gleiche Buchung mehrfach im Auszug – mögliche Doppelbuchung prüfen.':''})});
   if(!out.length)return toast('Keine Buchungen in der Datei erkannt',1);
   if(!confirm(out.length+' Buchungen erkannt ('+fd(out.map(o=>o.booking_date).sort()[0])+' bis '+fd(out.map(o=>o.booking_date).sort().pop())+'). Bereits vorhandene werden übersprungen. Importieren?'))return;
+  await saveTx(out);
+}
+async function saveTx(out,bal){
   const {data,error}=await sb.from('lp_bank_tx').upsert(out,{onConflict:'dedupe_key',ignoreDuplicates:true}).select('id');
-  if(error)return fail(error);toast((data?.length||0)+' neu importiert, '+(out.length-(data?.length||0))+' bereits vorhanden');refresh();
+  if(error)return fail(error);
+  if(bal&&!S.bal.some(b=>b.as_of>bal.as_of||(b.as_of===bal.as_of&&+b.amount_chf===bal.amount_chf))){const r=await sb.from('lp_bank_balance').insert(bal);if(r.error)fail(r.error)}
+  toast((data?.length||0)+' neu importiert, '+(out.length-(data?.length||0))+' bereits vorhanden');refresh();
+}
+/* ---------- Valiant-PDF ---------- */
+const RULES=[[/stardrinks/i,'Getränke','lieferantenbestellung'],[/heineken|feldschl/i,'Getränke','lieferantenbestellung'],[/ewb|energie wasser/i,'Energie','normal'],[/axa|versicherung/i,'Versicherung','normal'],[/gastrosocial|pensionskasse|ahv|ausgleichskasse/i,'Sozialversicherung','normal'],[/sumup|twint|payrexx|eventfrog|worldline/i,'Karten- und Onlineeinnahmen','normal'],[/betreibungsamt|inkasso|eos schweiz/i,'Betreibung / Inkasso','normal'],[/facebk|facebook|meta /i,'Werbung','normal'],[/kartengeb|setgeb|kontof|spesen des/i,'Bankgebühren','normal'],[/hostpoint/i,'IT','normal'],[/suisa/i,'SUISA','normal'],[/security/i,'Security','event'],[/sunrise|swisscom/i,'Telekom','normal'],[/treuhand/i,'Treuhand','normal'],[/jt intl|jti/i,'Sponsoring','normal'],[/lohn|salär|salaer/i,'Lohn','lohn'],[/bdo|miete/i,'Miete','normal']];
+const pnum=s=>+String(s).replace(/['’]/g,'');
+const dmy=s=>s.slice(6,10)+'-'+s.slice(3,5)+'-'+s.slice(0,2);
+const SKIP=[/^Valiant Bank AG$/,/^Bundesplatz 4$/,/^3001 Bern$/,/^CHE-[\d.]+ MWST$/,/^(Datum\/Zeit|Vertrag|Konto|IBAN|Bezeichnung|Inhaber\/in)\s/,/^Kontoauszug$/,/^Datum\s+Buchungstext/,/Angaben ohne Gewähr/,/^Seite \d+/];
+function parseValiant(lines){
+  const R={rows:[],warn:[]},T=/^(\d\d\.\d\d\.\d{4})\s+(.*?)\s*(\d\d\.\d\d\.\d{4})\s+(-?[\d'’]+\.\d\d)\s+(-?[\d'’]+\.\d\d)$/,G=/^(\d\d\.\d\d\.\d{4})\s+(.*)\s+(\d\d\.\d\d\.\d{4})\s+(-?[\d'’]+\.\d\d)\s+(-?[\d'’]+\.\d\d)$/;
+  let prev=null,cur=null;const tx=[];
+  for(let l of lines){l=l.replace(/\s+/g,' ').trim();if(!l)continue;let m;
+    if(m=l.match(/^Anfangssaldo per (\S+) CHF (-?[\d'’.]+)/)){if(R.start==null){R.start=pnum(m[2]);R.startDate=dmy(m[1]);prev=R.start}continue}
+    if(m=l.match(/^Schlusssaldo per (\S+) CHF (-?[\d'’.]+)/)){R.end=pnum(m[2]);R.endDate=dmy(m[1]);continue}
+    if(m=l.match(/^Belastungen CHF ([\d'’.]+)/)){R.deb=pnum(m[1]);continue}
+    if(m=l.match(/^Gutschriften CHF ([\d'’.]+)/)){R.cre=pnum(m[1]);continue}
+    if(SKIP.some(x=>x.test(l)))continue;
+    if(m=l.match(G)||l.match(T)){const a=pnum(m[4]),s=pnum(m[5]);let sign=0;
+      if(prev!=null){const d=Math.round((s-prev)*100)/100;if(Math.abs(Math.abs(d)-a)<0.006)sign=d<0?-1:1}
+      if(!sign){sign=-1;R.warn.push('Vorzeichen unklar: '+m[1]+' '+m[2]+' '+m[4])}
+      prev=s;cur={date:dmy(m[1]),val:dmy(m[3]),title:m[2].trim(),amt:a*sign,bal:s,det:[]};tx.push(cur);continue}
+    if(cur)cur.det.push(l);
+  }
+  const LAB=/^(Begünstigter|Auftraggeber|Begünstigtenkonto|Betrag|Mitteilung \/ Referenz|Spesen)$/;
+  const info=d=>{let p='',mi=[],b=null;for(let i=0;i<d.length;i++){if(/^(Begünstigter|Auftraggeber)$/.test(d[i])&&!p)p=d[i+1]||'';if(d[i]==='Betrag'&&b==null){const x=(d[i+1]||'').match(/^CHF (-?[\d'’.]+)$/);if(x)b=pnum(x[1])}if(d[i]==='Mitteilung / Referenz'){for(let j=i+1;j<d.length&&!LAB.test(d[j]);j++)mi.push(d[j])}}return{p,m:mi.join(' ').slice(0,90),b}};
+  for(const t of tx){
+    const title=t.title.replace(/ - \d\d\.\d\d\.\d{4}$/,''),blocks=[];let c=null;
+    for(const x of t.det){if(/^(Begünstigter|Auftraggeber)$/.test(x)){c=[];blocks.push(c)}if(c)c.push(x)}
+    const mk=(amt,det,bal,key,note)=>{const i=info(det),desc=[title,i.p,/^(Zahlung|Kartengeb)/.test(title)?'':i.m].filter(Boolean).join(' · '),r=RULES.find(x=>x[0].test(desc));
+      return{booking_date:t.date,value_date:t.val,description:desc,amount_chf:amt,balance_chf:bal,category:r?r[1]:'unkategorisiert',kind:r?r[2]:'normal',review_state:'zu_pruefen',dedupe_key:key,notes:note||''}};
+    const base='b|'+t.date+'|'+t.amt.toFixed(2)+'|'+t.bal.toFixed(2),parts=blocks.map(b=>info(b).b);
+    if(blocks.length>1&&parts.every(x=>x!=null)&&Math.abs(parts.reduce((a,x)=>a+x,0)-Math.abs(t.amt))<0.006)
+      blocks.forEach((b,i)=>R.rows.push(mk(parts[i]*Math.sign(t.amt),b,i===blocks.length-1?t.bal:null,base+'|p'+(i+1),'Teil '+(i+1)+'/'+blocks.length+' einer Sammelzahlung über CHF '+Math.abs(t.amt).toFixed(2))));
+    else R.rows.push(mk(t.amt,t.det,t.bal,base));
+  }
+  const live=R.rows,sd=live.filter(r=>r.amount_chf<0).reduce((a,r)=>a-r.amount_chf,0),sc=live.filter(r=>r.amount_chf>0).reduce((a,r)=>a+r.amount_chf,0);
+  R.sumDeb=Math.round(sd*100)/100;R.sumCre=Math.round(sc*100)/100;
+  R.ok=R.deb!=null&&R.cre!=null&&Math.abs(R.sumDeb-R.deb)<0.006&&Math.abs(R.sumCre-R.cre)<0.006&&R.end!=null&&prev!=null&&Math.abs(prev-R.end)<0.006;
+  return R;
+}
+async function pdfLines(pdf){
+  const out=[];
+  for(let p=1;p<=pdf.numPages;p++){const tc=await(await pdf.getPage(p)).getTextContent(),rows=[];
+    for(const it of tc.items){if(!it.str||!it.str.trim())continue;const x=it.transform[4],y=it.transform[5];let r=rows.find(r=>Math.abs(r.y-y)<2.5);if(!r)rows.push(r={y,it:[]});r.it.push({x,w:it.width,s:it.str})}
+    rows.sort((a,b)=>b.y-a.y);
+    for(const r of rows){r.it.sort((a,b)=>a.x-b.x);let s='',end=null;for(const i of r.it){s+=(end!=null&&i.x-end>1.2?' ':'')+i.s;end=i.x+i.w}out.push(s)}
+  }
+  return out;
+}
+
+async function importPdf(file){
+  try{
+    if(!window.pdfjsLib){await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';s.onload=ok;s.onerror=()=>no(new Error('PDF-Modul konnte nicht geladen werden'));document.head.appendChild(s)});
+      pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}
+    toast('PDF wird gelesen…');
+    const R=parseValiant(await pdfLines(await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise));
+    if(!S.docs.some(d=>d.file_name===file.name&&+d.size_bytes===file.size&&d.storage_path)){const p=spath('Bankauszüge',file.name),u=await sb.storage.from('lp-dokumente').upload(p,file,{contentType:'application/pdf'});
+      if(u.error)fail(u.error);else{const {error}=await sb.from('lp_documents').insert({library_file_id:'upload_'+crypto.randomUUID(),file_name:file.name,category:'Bankauszüge',state:'in_supabase',storage_path:p,doc_date:R.endDate||null,modified_on:today(),size_bytes:file.size});if(error)fail(error)}}
+    if(!R.rows.length)return toast('Im PDF wurden keine Buchungen erkannt. Die Datei liegt im Archiv; bitte an Claude senden.',1);
+    R.rows.forEach(r=>r.source_file=file.name);
+    const have=new Set(S.tx.map(t=>t.dedupe_key)),neu=R.rows.filter(r=>!have.has(r.dedupe_key)).length;
+    dlg.innerHTML=`<form method="dialog" id="pf"><h2>Kontoauszug ${fd(R.startDate)} – ${fd(R.endDate)}</h2>
+    <div class="note ${R.ok?'':'red'}">${R.ok?'Kontrolle bestanden: Die gelesenen Buchungen ergeben genau die Summen und den Schlusssaldo des Auszugs.':'<b>Kontrolle nicht bestanden.</b> Die gelesenen Summen weichen vom Auszug ab. Bitte nicht importieren und die Datei an Claude senden.'}</div>
+    <table><tr><th></th><th class="r">Laut Auszug</th><th class="r">Gelesen</th></tr><tr><td>Belastungen</td><td class="num r">${chf(R.deb)}</td><td class="num r">${chf(R.sumDeb)}</td></tr><tr><td>Gutschriften</td><td class="num r">${chf(R.cre)}</td><td class="num r">${chf(R.sumCre)}</td></tr><tr><td>Schlusssaldo per ${fd(R.endDate)}</td><td class="num r">${chf(R.end)}</td><td></td></tr></table>
+    <p class="sm">${R.rows.length} Buchungen (Sammelzahlungen sind in Einzelzahlungen aufgeteilt), davon <b>${neu} neu</b>. Alle werden als «Zu prüfen» eingetragen.</p>${R.warn.length?`<div class="note red sm">${R.warn.map(esc).join('<br>')}</div>`:''}
+    <div class="tw" style="max-height:38vh;overflow:auto"><table>${R.rows.map(r=>`<tr><td class="num sm">${fd(r.booking_date)}</td><td class="sm">${esc(r.description)}<div class="mut">${esc(r.category)}</div></td><td class="num r sm" style="color:${r.amount_chf<0?'var(--red)':'var(--grn)'}">${chf(r.amount_chf)}</td></tr>`).join('')}</table></div>
+    <div class="bar" style="justify-content:flex-end"><button class="btn sec" value="x">Abbrechen</button><button class="btn" value="s">${neu} Buchungen importieren</button></div></form>`;
+    $('#pf').onsubmit=async e=>{if(e.submitter?.value!=='s')return;e.preventDefault();dlg.close();await saveTx(R.rows,R.end!=null?{as_of:R.endDate,amount_chf:R.end,source:'Valiant-Kontoauszug '+file.name}:null)};
+    dlg.showModal();
+  }catch(e){fail(e)}
 }
 
 /* ---------- Dokumente ---------- */

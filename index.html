@@ -311,17 +311,17 @@ function vOrders(){
   if(o.liefer<o.date)o.liefer=addDays(o.date,1);
   M(`<h1>Bestellungen</h1>
   ${P?`<div class="note ${P.bestaetigt?'':'red'}"><b>${P.bestaetigt?'Preise bestätigt am '+fd(P.bestaetigt_am):'Preis zu prüfen: provisorische Listenpreise'}</b>, gültig ab ${fd(P.gueltig_ab)}. ${esc(P.hinweis||'')}</div>`:'<div class="note red">Es ist noch keine Preisliste hinterlegt.</div>'}
-  <div class="card"><h2>Neue Bestellung Stardrinks / Heineken</h2>
+  <div class="card"><h2>Neue Bestellung Stardrinks</h2>
    <div class="bar"><label class="sm">Bestelldatum <input type="date" id="od" value="${o.date}"></label><label class="sm">Liefertermin <input type="date" id="ol" value="${o.liefer}"></label></div>
-   <div class="tw"><table><tr><th>Produkt</th><th class="r">Gebinde à</th><th class="r">Stückpreis</th><th class="r">Preis pro Gebinde</th><th class="r">Anzahl Gebinde</th><th class="r">Summe</th></tr>
-   ${pos.map((p,i)=>`<tr><td>${esc(p.produkt)}</td><td class="r">${p.gebinde}</td><td class="num r">${chf(p.stueckpreis)}</td><td class="num r">${chf(p.gebindepreis)}</td><td class="r"><input type="number" min="0" step="1" style="width:80px" class="oq" data-i="${i}" value="${o.q[i]||''}" oninput="ordCalc()"></td><td class="num r" id="os${i}">–</td></tr>`).join('')}
+   <div class="tw"><table><tr><th>Produkt</th><th class="r">Einheit</th><th class="r">Stückpreis</th><th class="r">Preis pro Einheit</th><th class="r">Anzahl</th><th class="r">Summe</th></tr>
+   ${pos.map((p,i)=>`<tr><td>${esc(p.produkt)}${p.gebindepreis==null?' <span class="b zu_pruefen">Preis zu prüfen</span>':''}</td><td class="r">${esc(p.einheit||p.gebinde)}</td><td class="num r">${chf(p.stueckpreis)}</td><td class="num r">${chf(p.gebindepreis)}</td><td class="r"><input type="number" min="0" step="1" style="width:80px" class="oq" data-i="${i}" value="${o.q[i]||''}" oninput="ordCalc()"></td><td class="num r" id="os${i}">–</td></tr>`).join('')}
    ${o.extra.map((x,j)=>`<tr><td>${esc(x.produkt)} <span class="b zu_pruefen">Preis zu prüfen</span></td><td></td><td></td><td></td><td class="r">${x.menge}</td><td class="r"><button class="btn xs sec" onclick="S.ord.extra.splice(${j},1);vOrders()">Entfernen</button></td></tr>`).join('')}
    <tr><td colspan="5"><b>Total exkl. MWST${P&&!P.bestaetigt?' (provisorisch)':''}</b></td><td class="num r"><b id="ot">–</b></td></tr></table></div>
    <p class="sm mut">Oder Bestelltext einfügen, eine Position pro Zeile, z. B. «5 Longneck» oder «3 Dose 50 cl»:</p>
    <textarea id="otx" placeholder="5 Longneck&#10;2 Heineken 0.0&#10;3 Dose 50"></textarea>
    <div class="bar"><button class="btn sec" onclick="ordParse()">Text übernehmen</button><button class="btn sec" onclick="ordCopy()">Bestelltext kopieren</button>${canEdit()?'<button class="btn" onclick="ordSave()">Bestellung speichern</button>':''}</div>
    <p class="sm mut">Speichern legt nur den Eintrag an. Es wird nichts an Stardrinks gesendet und nichts bezahlt.</p></div>
-  <div class="card" style="margin-top:12px"><h2>Preisliste</h2>${pos.length?`<div class="tw"><table><tr><th>Produkt</th><th class="r">Gebinde à</th><th class="r">Stückpreis</th><th class="r">Pro Gebinde</th><th>Stand</th><th></th></tr>${pos.map((p,i)=>`<tr><td>${esc(p.produkt)}</td><td class="r">${p.gebinde}</td><td class="num r">${chf(p.stueckpreis)}</td><td class="num r">${chf(p.gebindepreis)}</td><td class="sm">${p.geaendert_am?'geändert '+fd(p.geaendert_am):'Liste ab '+fd(P.gueltig_ab)}</td><td>${admin()?`<button class="btn xs sec" onclick="ordPrice(${i})">Preis ändern</button>`:''}</td></tr>`).join('')}</table></div>`:''}
+  <div class="card" style="margin-top:12px"><h2>Preisliste</h2>${pos.length?`<div class="tw"><table><tr><th>Produkt</th><th class="r">Einheit</th><th class="r">Stückpreis</th><th class="r">Pro Einheit</th><th>Stand</th><th></th></tr>${pos.map((p,i)=>`<tr><td>${esc(p.produkt)}${p.mat_nr?' <span class="mut sm">Nr. '+esc(p.mat_nr)+'</span>':''}</td><td class="r">${esc(p.einheit||p.gebinde)}</td><td class="num r">${chf(p.stueckpreis)}</td><td class="num r">${chf(p.gebindepreis)}</td><td class="sm">${p.gebindepreis==null?'<span class="b zu_pruefen">Preis fehlt</span>':p.geaendert_am?'geändert '+fd(p.geaendert_am):'Liste ab '+fd(P.gueltig_ab)}</td><td>${admin()?`<button class="btn xs sec" onclick="ordPrice(${i})">Preis ändern</button>`:''}</td></tr>`).join('')}</table></div>`:''}
    ${admin()&&P?`<div class="bar"><button class="btn sec" onclick="ordAdd()">Produkt hinzufügen</button>${P.bestaetigt?'':'<button class="btn sec" onclick="ordConfirm()">Preise als bestätigt markieren</button>'}</div>`:''}
    ${P?.quelle?`<p class="sm mut">Quelle: <a href="${esc(P.quelle)}" target="_blank" rel="noopener">Preisliste</a>. ${esc(P.quelle_geprueft||'')}</p>`:''}</div>
   <div class="card" style="margin-top:12px"><h2>Erfasste Bestellungen</h2><div class="tw"><table><tr><th>Bestellt</th><th>Positionen</th><th class="r">Summe exkl. MWST</th><th>Lieferung</th><th>Status</th></tr>
@@ -329,8 +329,8 @@ function vOrders(){
   $('#od').onchange=e=>{o.date=e.target.value};$('#ol').onchange=e=>{o.liefer=e.target.value};ordCalc();
 }
 function ordLines(){const pos=priceRec()?.details.preise_provisorisch.positionen||[],o=S.ord,L=[];document.querySelectorAll('.oq').forEach(e=>{o.q[e.dataset.i]=+e.value||0});
-  pos.forEach((p,i)=>{const m=o.q[i]||0;if(m>0)L.push({produkt:p.produkt,gebinde:p.gebinde,menge:m,gebindepreis:p.gebindepreis,summe:Math.round(m*p.gebindepreis*100)/100})});return L}
-function ordCalc(){const pos=priceRec()?.details.preise_provisorisch.positionen||[],L=ordLines();pos.forEach((p,i)=>{const m=S.ord.q[i]||0,e=$('#os'+i);if(e)e.textContent=m>0?chf(m*p.gebindepreis):'–'});$('#ot').textContent=chf(L.reduce((s,l)=>s+l.summe,0))}
+  pos.forEach((p,i)=>{const m=o.q[i]||0;if(m>0)L.push(p.gebindepreis==null?{produkt:p.produkt,einheit:p.einheit||'',menge:m,summe:0,preis_zu_pruefen:true}:{produkt:p.produkt,gebinde:p.gebinde,einheit:p.einheit||(p.gebinde+'er Gebinde'),menge:m,gebindepreis:p.gebindepreis,summe:Math.round(m*p.gebindepreis*100)/100})});return L}
+function ordCalc(){const pos=priceRec()?.details.preise_provisorisch.positionen||[],L=ordLines();pos.forEach((p,i)=>{const m=S.ord.q[i]||0,e=$('#os'+i);if(e)e.textContent=m>0?(p.gebindepreis==null?'Preis fehlt':chf(m*p.gebindepreis)):'–'});const nf=L.filter(l=>l.preis_zu_pruefen).length;$('#ot').textContent=chf(L.reduce((s,l)=>s+l.summe,0))+(nf?' + '+nf+' Position(en) ohne Preis':'')}
 function ordParse(){
   const pos=priceRec()?.details.preise_provisorisch.positionen||[],o=S.ord;let hit=0,miss=0;ordLines();
   $('#otx').value.split(/[\n;]+/).map(s=>s.trim()).filter(Boolean).forEach(line=>{const m=line.match(/^(\d+)\s*(?:x|×|mal|stk\.?|kisten?|harass(?:e|en)?|gebinde)?\s*(.+)$/i);if(!m){miss++;o.extra.push({produkt:line,menge:1});return}
@@ -338,18 +338,18 @@ function ordParse(){
     if(best>=1&&idx.length===1){o.q[idx[0]]=(o.q[idx[0]]||0)+ +m[1];hit++}else{o.extra.push({produkt:m[2],menge:+m[1]});miss++}});
   toast(hit+' Position(en) erkannt'+(miss?', '+miss+' ohne eindeutigen Preis':''),miss>0&&!hit);vOrders();
 }
-function ordText(){const L=ordLines(),o=S.ord;return 'Bestellung Le Portier N°35 (PrimeVibes GmbH), Kundennummer 435753\nLieferung bis '+fd(o.liefer)+'\n\n'+[...L.map(l=>l.menge+' × '+l.produkt+' ('+l.gebinde+'er Gebinde)'),...o.extra.map(x=>x.menge+' × '+x.produkt)].join('\n')}
+function ordText(){const L=ordLines(),o=S.ord;return 'Bestellung Le Portier N°35 (PrimeVibes GmbH), Kundennummer 435753\nLieferung bis '+fd(o.liefer)+'\n\n'+[...L.map(l=>l.menge+' × '+l.produkt+(l.einheit?' ('+l.einheit+')':'')),...o.extra.map(x=>x.menge+' × '+x.produkt)].join('\n')}
 async function ordCopy(){const t=ordText();try{await navigator.clipboard.writeText(t);toast('Bestelltext kopiert')}catch(_){prompt('Bestelltext zum Kopieren:',t)}}
 async function ordSave(){
   const L=ordLines(),o=S.ord,P=priceRec()?.details.preise_provisorisch,all=[...L,...o.extra.map(x=>({produkt:x.produkt,menge:x.menge,preis_zu_pruefen:true}))];if(!all.length)return toast('Bitte mindestens eine Position erfassen',1);
-  const sum=Math.round(L.reduce((s,l)=>s+l.summe,0)*100)/100,ok=!!P?.bestaetigt&&!o.extra.length;
-  const {error}=await sb.from('lp_records').insert({category:'lieferant',title:'Bestellung Stardrinks / Heineken '+fd(o.date),status:'offen',priority:'mittel',due_date:o.liefer||null,responsible:S.name,evidence:'Bestellrechner',
+  const sum=Math.round(L.reduce((s,l)=>s+l.summe,0)*100)/100,ok=!!P?.bestaetigt&&!o.extra.length&&!L.some(l=>l.preis_zu_pruefen);
+  const {error}=await sb.from('lp_records').insert({category:'lieferant',title:'Bestellung Stardrinks '+fd(o.date),status:'offen',priority:'mittel',due_date:o.liefer||null,responsible:S.name,evidence:'Bestellrechner',
     notes:'Bestellung für '+fd(o.date)+', Lieferung bis '+fd(o.liefer)+'. Summe CHF '+sum.toFixed(2)+' exkl. MWST'+(ok?'':', mit provisorischen Listenpreisen gerechnet (Preis zu prüfen)')+'. Keine Zahlung ausgelöst.',
     details:{art:'bestellung',lieferant:'stardrinks',bestelldatum:o.date,liefertermin:o.liefer,positionen:all,summe_exkl_mwst:sum,preise_bestaetigt:ok,preisstand:P?.gueltig_ab||null}});
   if(error)return fail(error);S.ord=null;toast('Bestellung gespeichert');refresh();
 }
 async function ordPut(P){const pr=priceRec(),{error}=await sb.from('lp_records').update({details:{...pr.details,preise_provisorisch:P}}).eq('id',pr.id);error?fail(error):(toast('Preisliste gespeichert'),refresh())}
-function ordPrice(i){const P=structuredClone(priceRec().details.preise_provisorisch),p=P.positionen[i],v=prompt('Neuer Stückpreis in CHF exkl. MWST für «'+p.produkt+'»:',p.stueckpreis);if(v==null)return;const n=num(v);if(isNaN(n)||n<=0)return toast('Preis ungültig',1);p.stueckpreis=n;p.gebindepreis=Math.round(n*p.gebinde*100)/100;p.geaendert_am=today();ordPut(P)}
+function ordPrice(i){const P=structuredClone(priceRec().details.preise_provisorisch),p=P.positionen[i],g=p.gebinde>0,v=prompt((g?'Neuer Stückpreis':'Preis pro '+(p.einheit||'Einheit'))+' in CHF exkl. MWST für «'+p.produkt+'»:',(g?p.stueckpreis:p.gebindepreis)??'');if(v==null)return;const n=num(v);if(isNaN(n)||n<=0)return toast('Preis ungültig',1);if(g){p.stueckpreis=n;p.gebindepreis=Math.round(n*p.gebinde*100)/100}else p.gebindepreis=n;p.geaendert_am=today();ordPut(P)}
 function ordAdd(){const P=structuredClone(priceRec().details.preise_provisorisch),name=prompt('Produktname:');if(!name)return;const g=parseInt(prompt('Stück pro Gebinde:','24'),10),n=num(prompt('Stückpreis in CHF exkl. MWST:')||'');if(!(g>0)||isNaN(n)||n<=0)return toast('Angaben ungültig',1);P.positionen.push({produkt:name.trim(),gebinde:g,stueckpreis:n,gebindepreis:Math.round(n*g*100)/100,geaendert_am:today()});ordPut(P)}
 function ordConfirm(){if(!confirm('Alle Preise als bestätigt markieren?\n\nNur bestätigen, wenn sie mit einer aktuellen Stardrinks-Rechnung oder Kundenpreisliste übereinstimmen.'))return;const P=structuredClone(priceRec().details.preise_provisorisch);P.bestaetigt=true;P.bestaetigt_am=today();ordPut(P)}
 

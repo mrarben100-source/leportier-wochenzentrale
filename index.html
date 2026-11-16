@@ -28,7 +28,7 @@ table{width:100%;border-collapse:collapse}th{font-size:12px;text-align:left;colo
 td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}tr.click{cursor:pointer}tr.click:hover{background:#faf8f4}
 .tw{overflow-x:auto}
 .b{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;white-space:nowrap}
-.b.offen{background:var(--blubg);color:var(--blu)}.b.in_bearbeitung{background:var(--ambbg);color:var(--amb)}.b.erledigt{background:var(--grnbg);color:var(--grn)}.b.zu_pruefen{background:var(--redbg);color:var(--red)}
+.b.offen{background:var(--blubg);color:var(--blu)}.b.in_bearbeitung{background:var(--ambbg);color:var(--amb)}.b.erledigt{background:var(--grnbg);color:var(--grn)}.b.wartet{background:#ececec;color:#555}.b.zu_pruefen{background:var(--redbg);color:var(--red)}
 .b.p1{background:var(--red);color:#fff}.b.p2{background:var(--accbg);color:var(--acc)}.b.p3{background:#eee;color:#555}.b.g{background:#eee;color:#555}
 .bar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;align-items:center}
 input,select,textarea{font:inherit;padding:7px 9px;border:1px solid #cfc9bd;border-radius:8px;background:#fff;color:var(--ink);max-width:100%}
@@ -65,7 +65,7 @@ const today=()=>iso(new Date());
 const fd=s=>s?s.slice(8,10)+'.'+s.slice(5,7)+'.'+s.slice(0,4):'–';
 const addDays=(s,n)=>{const d=new Date(s+'T12:00');d.setDate(d.getDate()+n);return iso(d)};
 const monday=s=>{const d=new Date(s+'T12:00');return addDays(s,-((d.getDay()+6)%7))};
-const ST={offen:'Offen',in_bearbeitung:'In Bearbeitung',erledigt:'Erledigt',zu_pruefen:'Zu prüfen'};
+const ST={offen:'Offen',in_bearbeitung:'In Bearbeitung',wartet:'Wartet',erledigt:'Erledigt',zu_pruefen:'Zu prüfen'};
 const PR={hoch:'1',mittel:'2',niedrig:'3'};
 const CAT={aufgabe:'Aufgabe',zahlung:'Zahlung',event:'Event',lieferant:'Lieferant',dokument:'Dokument',personal:'Personal',vertrag:'Vertrag'};
 const PEOPLE=['Arben','Dennis','Levent'];
@@ -87,10 +87,23 @@ async function boot(){
   if(!session) return loginView();
   S.user=session.user;
   const {data:m}=await sb.from('lp_members').select('role,display_name').eq('user_id',S.user.id).maybeSingle();
-  if(!m) return root.innerHTML=`<div class="login"><div class="card"><h1>Zugang noch nicht freigeschaltet</h1><p>Angemeldet als <b>${esc(S.user.email)}</b>. Dein Konto muss zuerst von Arben freigeschaltet werden.</p><button class="btn sec" onclick="logout()">Abmelden</button></div></div>`;
+  if(!m||m.role==='pending')return pendingView(m);
   S.role=m.role;S.name=m.display_name||S.user.email;
-  await load();shell();route();autoMail();setInterval(autoMail,120000);
+  await load();shell();route();live();autoMail();setInterval(autoMail,120000);
 }
+function pendingView(m){
+  root.innerHTML=`<div class="login"><div class="card"><h1>Zugang noch nicht freigeschaltet</h1><p>Angemeldet als <b>${esc(S.user.email)}</b>.</p>
+  ${m?`<div class="note">Deine Anfrage ist gesendet. Ein Administrator muss dich im Dashboard unter «Protokoll → Benutzer» freischalten.</div><button class="btn" onclick="boot()">Erneut prüfen</button>`
+     :`<p class="mut sm">Trag deinen Namen ein und sende die Anfrage. Danach schaltet dich ein Administrator frei.</p><input id="pn" placeholder="Vorname (z. B. Levent)"><button class="btn" id="pb">Zugang anfragen</button>`}
+  <button class="btn sec" onclick="logout()">Abmelden</button></div></div>`;
+  if(!m)$('#pb').onclick=async()=>{const n=$('#pn').value.trim();if(!n)return toast('Bitte Namen eintragen',1);const {error}=await sb.from('lp_members').insert({user_id:S.user.id,role:'pending',display_name:n});error?fail(error):boot()};
+}
+function live(){
+  sb.channel('lp-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'lp_changes'},()=>S.dirty=true).on('postgres_changes',{event:'INSERT',schema:'public',table:'lp_comments'},()=>S.dirty=true).subscribe();
+  setInterval(async()=>{if(!S.dirty||S.autoBusy||dlg.open||/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName||''))return;S.dirty=false;await load();route()},2500);
+}
+const nameOf=id=>id?(S.members.find(m=>m.user_id===id)?.display_name||(id===S.user.id?S.name:'Benutzer')):'System / ChatGPT';
+const mine=r=>{const n=(S.name||'').split(/[\s@]/)[0];return n.length>1&&new RegExp('(^|[^\\p{L}])'+n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'($|[^\\p{L}])','iu').test(r.responsible||'')};
 function loginView(msg){
   root.innerHTML=`<div class="login"><div class="card"><h1>Le Portier N°35</h1><p class="mut">Wochenzentrale – Anmeldung</p>
   ${msg?`<div class="note">${esc(msg)}</div>`:''}
@@ -112,6 +125,7 @@ async function load(){
     sb.from('lp_changes').select('*').order('changed_at',{ascending:false}).limit(150)];
   const r=await Promise.all(q);const e=r.find(x=>x.error);if(e)fail(e.error);
   [S.records,S.recurring,S.docs,S.tx,S.bal,S.changes]=r.map(x=>x.data||[]);
+  const mm=await sb.from('lp_members').select('user_id,role,display_name,email,requested_at');S.members=mm.data||[];
 }
 async function refresh(){await load();route()}
 
@@ -152,13 +166,16 @@ function vHome(){
    <div class="card kpi"><div class="l">Dokumente</div><div class="v">${S.docs.length-miss} / ${S.docs.length}</div><div class="sm mut">${miss} Verweise ohne hochgeladene Datei</div></div>
   </div>
   <div class="note">Offene Zahlungen sind nur die erfassten Einzelbeträge. Sie sind kein bestätigter Gesamtschuldenstand; Salden mit Status «Zu prüfen» sind nicht bestätigt.</div>
+  ${admin()&&S.members.some(m=>m.role==='pending')?`<div class="note red"><b>${S.members.filter(m=>m.role==='pending').length} Zugangsanfrage(n) offen.</b> <a href="#protokoll">Jetzt prüfen und freischalten</a></div>`:''}
   <div class="cols">
+   <div class="card"><h2>Meine Aufgaben (${esc(S.name)})</h2>${tbl(R.filter(r=>open(r)&&mine(r)).sort((a,b)=>(PR[a.priority]||9)-(PR[b.priority]||9)||(a.due_date||'9').localeCompare(b.due_date||'9')).slice(0,12),'Dir ist nichts Offenes zugewiesen.')}</div>
    <div class="card"><h2>Heute fällig und überfällig</h2>${tbl(todayL,'Nichts fällig.')}</div>
    <div class="card"><h2>Diese Woche</h2>${tbl(weekL,'Keine weiteren Fälligkeiten diese Woche.')}
      <h3 style="margin-top:12px">Wiederkehrend</h3>${rec.length?rec.map(r=>`<div class="sm" style="padding:5px 0;border-bottom:1px solid var(--line)">${fd(r.next_due)} · ${esc(r.title)} <span class="mut">(${esc(r.responsible||'')})</span></div>`).join(''):'<p class="mut sm">Keine.</p>'}</div>
    <div class="card"><h2>Priorität 1 ohne Fälligkeit</h2>${tbl(p1,'Keine.')}</div>
    <div class="card"><h2>Events und Eventabrechnungen</h2>${tbl(ev.slice().sort((a,b)=>(b.due_date||'').localeCompare(a.due_date||'')).slice(0,6),'Keine Events.')}</div>
    ${admin()?`<div class="card"><h2>Einnahmen und Ausgaben (Bank)</h2>${chart()}</div>`:''}
+   <div class="card"><h2>Aktivitäten</h2>${S.changes.slice(0,10).map(c=>{const a=c.after_value||{},b=c.before_value||{};return `<div class="sm" style="padding:5px 0;border-bottom:1px solid var(--line)"><span class="mut">${new Date(c.changed_at).toLocaleString('de-CH',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span> · <b>${esc(nameOf(c.actor_id))}</b> ${({insert:'hat angelegt',update:'hat geändert',delete:'hat gelöscht'})[c.action]||esc(c.action)}: ${esc(a.title||b.title||a.file_name||b.file_name||a.description||b.description||a.display_name||b.display_name||'')}</div>`}).join('')||'<p class="mut sm">Noch keine Änderungen.</p>'}<p class="sm"><a href="#protokoll">Ganzes Protokoll</a></p></div>
    <div class="card"><h2>E-Mail-Posteingang</h2>${autoBox()}${mailRecent()}<p class="mut sm"><a href="#email">Posteingang öffnen</a></p></div>
   </div>`);
 }
@@ -185,6 +202,11 @@ function vList(key){
   if(key==='personal'&&admin()){S.st&&S.st.monat===$('#stm').value?stShow():stLoad($('#stm').value)}
 }
 const kSum=r=>(r.details?.kassen||[]).reduce((a,k)=>({bar:a.bar+k.bar,unbar:a.unbar+k.unbar,sonst:a.sonst+k.sonstige,netto:a.netto+k.netto,tg:a.tg+k.trinkgeld,brutto:a.brutto+k.brutto,n:a.n+1}),{bar:0,unbar:0,sonst:0,netto:0,tg:0,brutto:0,n:0});
+async function cmLoad(id){
+  const box=$('#cm');if(!box)return;const {data}=await sb.from('lp_comments').select('*').eq('record_id',id).order('created_at');
+  box.innerHTML=`<b>Kommentare</b>${(data||[]).map(c=>`<div style="padding:4px 0;border-bottom:1px solid var(--line)"><span class="mut">${new Date(c.created_at).toLocaleString('de-CH',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} · ${esc(nameOf(c.author_id))}:</span> ${esc(c.body)}</div>`).join('')||' <span class="mut">keine</span>'}${canEdit()?'<div class="bar"><input id="cmi" placeholder="Kommentar schreiben…" style="flex:1"><button type="button" class="btn xs" id="cmb">Hinzufügen</button></div>':''}`;
+  if(canEdit())$('#cmb').onclick=async()=>{const v=$('#cmi').value.trim();if(!v)return;const {error}=await sb.from('lp_comments').insert({record_id:id,body:v,author_id:S.user.id});error?fail(error):cmLoad(id)};
+}
 function evRes(r){const d=r.details||{},n=k=>+d[k]||0,ks=kSum(r);if(!ks.n&&!['ein_ticket','ein_karte','ein_twint','ein_bar','kosten_getraenke','kosten_weitere'].some(k=>d[k]!=null&&d[k]!==''))return null;return ks.netto+n('ein_ticket')+n('ein_karte')+n('ein_twint')+n('ein_bar')-n('kosten_getraenke')-n('kosten_weitere')}
 /* ---------- BF POS Tagesabschluss ---------- */
 function parseBfpos(txt){
@@ -247,16 +269,18 @@ function editRec(id,cat){
   <div class="w" id="evf" style="display:${r.category==='event'?'grid':'none'};grid-template-columns:1fr 1fr;gap:10px">${EVF.map(([k,l,n])=>`<label>${l}<input name="d_${k}" ${n?'type="number" step="0.01"':''} value="${esc(d[k]??'')}"></label>`).join('')}</div>
   </div>
   ${r.category==='event'&&id?`<p class="sm"><b>Kassenabschlüsse:</b> ${(d.kassen||[]).map(k=>'#'+esc(k.abschluss)+' '+chf(k.brutto)).join(' · ')||'keine'} – werden im Ergebnis automatisch mitgerechnet. <button type="button" class="btn xs sec" onclick="evPrint('${id}')">Eventabrechnung öffnen</button></p>`:''}${docs.length?`<p class="sm"><b>Dokumente:</b> ${docs.map(x=>esc(x.file_name)).join(', ')}</p>`:''}${tx.length?`<p class="sm"><b>Zugeordnete Bankzahlungen:</b> ${tx.map(t=>fd(t.booking_date)+' '+chf(t.amount_chf)).join(' · ')}</p>`:''}
-  ${id?`<p class="sm mut">Zuletzt geändert ${new Date(r.updated_at).toLocaleString('de-CH')}${r.confirmed_on?' · bestätigt am '+fd(r.confirmed_on):''}</p>`:''}
+  ${id?`<p class="sm mut">Erstellt ${new Date(r.created_at).toLocaleString('de-CH')}${r.created_by?' von '+esc(nameOf(r.created_by)):''} · zuletzt geändert ${new Date(r.updated_at).toLocaleString('de-CH')}${r.updated_by?' von '+esc(nameOf(r.updated_by)):''}${r.confirmed_on?' · bestätigt am '+fd(r.confirmed_on):''}</p><div id="cm" class="sm"></div>`:''}
   <div class="bar" style="justify-content:flex-end"><button class="btn sec" value="x" formnovalidate>Schliessen</button>${ro?'':'<button class="btn" value="s">Speichern</button>'}</div></form>`;
   const f=$('#rf');f.category.onchange=()=>$('#evf').style.display=f.category.value==='event'?'grid':'none';
   if(ro)f.querySelectorAll('input,select,textarea').forEach(e=>e.disabled=true);
   f.onsubmit=async e=>{if(e.submitter?.value!=='s')return;e.preventDefault();const v=Object.fromEntries(new FormData(f));const det={...d};
     if(v.category==='event')EVF.forEach(([k,,n])=>{const x=v['d_'+k];if(x==='')delete det[k];else det[k]=n?+x:x});
     const p={title:v.title.trim(),category:v.category,responsible:v.responsible.trim()||null,status:v.status,priority:v.priority,amount_chf:v.amount_chf===''?null:+v.amount_chf,due_date:v.due_date||null,remind_on:v.remind_on||null,evidence:v.evidence,notes:v.notes,details:det};
-    const {error}=id?await sb.from('lp_records').update(p).eq('id',id):await sb.from('lp_records').insert(p);
-    if(error)return fail(error);dlg.close();toast('Gespeichert');refresh()};
-  dlg.showModal();
+    if(id){const {data,error}=await sb.from('lp_records').update(p).eq('id',id).eq('updated_at',r.updated_at).select('id');if(error)return fail(error);
+      if(!data.length){dlg.close();toast('Nicht gespeichert: Dieser Eintrag wurde inzwischen von jemand anderem geändert. Er wird neu geladen, bitte Änderung nochmals eintragen.',1);return refresh()}}
+    else{const {error}=await sb.from('lp_records').insert(p);if(error)return fail(error)}
+    dlg.close();toast('Gespeichert');refresh()};
+  dlg.showModal();if(id)cmLoad(id);
 }
 
 /* ---------- Finanzen ---------- */
@@ -612,11 +636,15 @@ async function lohnPdf(maId,quiet){
 }
 async function lohnAlle(){const d=S.st,ids=d.mitarbeiter.filter(m=>calcLohn(m,d.stamps).h>0).map(m=>m.id);if(!confirm(ids.length+' Lohnabrechnungen für '+d.monat+' erstellen und im Archiv ablegen? Bestehende werden ersetzt.'))return;let n=0;for(const id of ids)if(await lohnPdf(id,true))n++;toast(n+' Lohnabrechnungen im Archiv');await load();stShow()}
 function vLog(){
-  const lab={insert:'Neu',update:'Geändert',delete:'Gelöscht'},tn={lp_records:'Eintrag',lp_recurring:'Wiederkehrend',lp_documents:'Dokument',lp_bank_tx:'Bankbuchung',lp_bank_balance:'Kontostand'};
-  M(`<h1>Änderungsprotokoll</h1><p class="mut">Jede Änderung wird automatisch mit Zeitpunkt und altem/neuem Wert gespeichert. Angezeigt werden die letzten 150.</p><div class="card"><div class="tw"><table><tr><th>Zeit</th><th>Bereich</th><th>Aktion</th><th>Betroffen</th><th>Geänderte Felder</th></tr>
-  ${S.changes.map(c=>{const a=c.after_value||{},b=c.before_value||{},ch=c.action==='update'?Object.keys(a).filter(k=>k!=='updated_at'&&JSON.stringify(a[k])!==JSON.stringify(b[k])):[];
-   return `<tr><td class="num sm">${new Date(c.changed_at).toLocaleString('de-CH')}</td><td>${esc(tn[c.table_name]||c.table_name||'')}</td><td>${esc(lab[c.action]||c.action)}</td><td>${esc(a.title||b.title||a.file_name||b.file_name||a.description||b.description||'')}</td><td class="sm">${ch.map(k=>`${esc(k)}: ${esc(JSON.stringify(b[k])).slice(0,60)} → ${esc(JSON.stringify(a[k])).slice(0,60)}`).join('<br>')}</td></tr>`}).join('')||'<tr><td colspan="5" class="mut">Noch keine Änderungen.</td></tr>'}</table></div></div>`);
+  const lab={insert:'Neu',update:'Geändert',delete:'Gelöscht'},tn={lp_records:'Eintrag',lp_recurring:'Wiederkehrend',lp_documents:'Dokument',lp_bank_tx:'Bankbuchung',lp_bank_balance:'Kontostand',lp_members:'Benutzer'};
+  M(`<h1>Änderungsprotokoll</h1><p class="mut">Jede Änderung wird automatisch mit Zeitpunkt und altem/neuem Wert gespeichert. Angezeigt werden die letzten 150.</p><div class="card"><div class="tw"><table><tr><th>Zeit</th><th>Wer</th><th>Bereich</th><th>Aktion</th><th>Betroffen</th><th>Geänderte Felder</th></tr>
+  ${S.changes.map(c=>{const a=c.after_value||{},b=c.before_value||{},ch=c.action==='update'?Object.keys(a).filter(k=>k!=='updated_at'&&k!=='updated_by'&&JSON.stringify(a[k])!==JSON.stringify(b[k])):[];
+   return `<tr><td class="num sm">${new Date(c.changed_at).toLocaleString('de-CH')}</td><td>${esc(nameOf(c.actor_id))}</td><td>${esc(tn[c.table_name]||c.table_name||'')}</td><td>${esc(lab[c.action]||c.action)}</td><td>${esc(a.title||b.title||a.file_name||b.file_name||a.description||b.description||a.display_name||b.display_name||'')}</td><td class="sm">${ch.map(k=>`${esc(k)}: ${esc(JSON.stringify(b[k])).slice(0,60)} → ${esc(JSON.stringify(a[k])).slice(0,60)}`).join('<br>')}</td></tr>`}).join('')||'<tr><td colspan="6" class="mut">Noch keine Änderungen.</td></tr>'}</table></div></div>${admin()?usersBox():''}`);
 }
+const RL={admin:'Administrator',editor:'Bearbeiter',viewer:'Nur lesen',pending:'Angefragt – nicht freigeschaltet'};
+function usersBox(){return `<div class="card" style="margin-top:14px"><h2>Benutzer</h2><div class="tw"><table><tr><th>Name</th><th>E-Mail</th><th>Rolle</th><th></th></tr>${S.members.map(m=>`<tr><td>${esc(m.display_name||'–')}</td><td>${esc(m.email||(m.user_id===S.user.id?S.user.email:'–'))}</td><td>${m.role==='pending'?'<span class="b zu_pruefen">'+RL.pending+'</span>':esc(RL[m.role])}</td><td>${m.role==='pending'?`<button class="btn xs" onclick="userApprove('${m.user_id}')">Als Administrator freischalten</button>`:`<button class="btn xs sec" onclick="userName('${m.user_id}')">Name ändern</button>`}</td></tr>`).join('')}</table></div><p class="sm mut">Der Name bestimmt «Meine Aufgaben»: Er muss so lauten wie im Feld «Verantwortlich» (z. B. Arben, Levent). Rechte entziehen oder Konten sperren ist hier bewusst nicht möglich; das läuft über Claude.</p></div>`}
+async function userApprove(id){const m=S.members.find(x=>x.user_id===id);if(!confirm('«'+(m.display_name||'')+'» ('+(m.email||'')+') als Administrator freischalten?\n\nDie Person erhält vollen Zugriff auf Finanzen, Personal, Dokumente und E-Mail.'))return;if(prompt('Zur Bestätigung bitte FREISCHALTEN eintippen:')!=='FREISCHALTEN')return toast('Abgebrochen');const {error}=await sb.from('lp_members').update({role:'admin'}).eq('user_id',id);error?fail(error):(toast('Freigeschaltet'),refresh())}
+async function userName(id){const m=S.members.find(x=>x.user_id===id),n=prompt('Anzeigename:',m.display_name||'');if(!n||!n.trim())return;const {error}=await sb.from('lp_members').update({display_name:n.trim()}).eq('user_id',id);error?fail(error):refresh()}
 boot();
 </script>
 </body>

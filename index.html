@@ -149,7 +149,7 @@ async function load(){
 async function refresh(){await load();route()}
 
 /* ---------- Rahmen ---------- */
-const NAV=[['uebersicht','Übersicht'],['aufgaben','Aufgaben'],['finanzen','Finanzen'],['events','Events'],['lieferanten','Lieferanten'],['personal','Personal'],['dokumente','Dokumente'],['kalender','Kalender'],['email','E-Mail'],['protokoll','Protokoll']];
+const NAV=[['uebersicht','Übersicht'],['aufgaben','Aufgaben'],['finanzen','Finanzen'],['events','Events'],['lieferanten','Lieferanten'],['bestellungen','Bestellungen'],['personal','Personal'],['dokumente','Dokumente'],['kalender','Kalender'],['email','E-Mail'],['protokoll','Protokoll']];
 function shell(){
   root.innerHTML=`<div id="app"><nav><div class="brand"><img src="icon-180.png" alt=""><div>Le Portier N°35<span>Wochenzentrale</span></div></div>${NAV.map(([k,l])=>`<a href="#${k}" data-k="${k}">${l}</a>`).join('')}
   <div class="who">${esc(S.name)} · ${esc({admin:'Admin',editor:'Bearbeiter',viewer:'Nur lesen'}[S.role])}<br><button onclick="logout()">Abmelden</button></div></nav><main id="main"></main></div>`;
@@ -157,7 +157,7 @@ function shell(){
 window.onhashchange=()=>S.role&&route();
 function route(){
   const k=(location.hash.slice(1)||'uebersicht');document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.k===k));
-  ({uebersicht:vHome,aufgaben:()=>vList('aufgaben'),finanzen:vFin,events:()=>vList('events'),lieferanten:()=>vList('lieferanten'),personal:()=>vList('personal'),dokumente:vDocs,kalender:vCal,email:vMail,protokoll:vLog}[k]||vHome)();
+  ({uebersicht:vHome,aufgaben:()=>vList('aufgaben'),finanzen:vFin,events:()=>vList('events'),lieferanten:()=>vList('lieferanten'),bestellungen:vOrders,personal:()=>vList('personal'),dokumente:vDocs,kalender:vCal,email:vMail,protokoll:vLog}[k]||vHome)();
 }
 const M=h=>$('#main').innerHTML=h;
 const open=r=>r.status!=='erledigt';
@@ -216,7 +216,7 @@ function vList(key){
   M(`<h1>${V.t}</h1>${hint}<div class="bar"><input id="fq" placeholder="Suchen…" value="${esc(f.q)}"><select id="fst">${opts(ST,f.st,'Alle Status')}</select><select id="fpr">${opts({hoch:'Priorität 1',mittel:'Priorität 2',niedrig:'Priorität 3'},f.pr,'Alle Prioritäten')}</select><select id="fwho">${opts(Object.fromEntries(PEOPLE.map(p=>[p,p])),f.who,'Alle Personen')}</select>
   <label class="sm"><input type="checkbox" id="fdone"${f.done?' checked':''}> Erledigte zeigen</label>${canEdit()?`<button class="btn" onclick="editRec(null,'${V.n}')">+ Neu</button>`:''}</div>
   <div class="card"><div class="tw"><table><tr><th>P</th><th>Titel</th><th>Verantwortlich</th><th>Fällig</th><th class="r">Betrag</th><th>Status</th></tr>
-  ${a.map(r=>{const p=paidFor(r.id),ev=r.category==='event'?evRes(r):null;return `<tr class="click" onclick="editRec('${r.id}')"><td>${pbadge(r.priority)}</td><td><b>${esc(r.title)}</b> <span class="b g">${esc(CAT[r.category])}</span>${r.details?.art==='lieferantenbestellung'?' <span class="b g">Bestellung</span>':r.details?.art==='altforderung'?' <span class="b zu_pruefen">Altforderung</span>':''}<div class="mut sm">${esc(r.notes)}</div>${r.category==='event'&&kSum(r).n?`<div class="sm">Kassenabschlüsse: ${kSum(r).n} · Karten ${chf(kSum(r).unbar)} · Bar ${chf(kSum(r).bar)} · Trinkgeld ${chf(kSum(r).tg)}</div>`:''}${ev!=null?`<div class="sm">Ergebnis laut erfassten Werten: <b>${chf(ev)}</b></div>`:''}</td><td>${esc(r.responsible||'–')}</td><td class="num">${fd(r.due_date)}</td><td class="num r">${chf(r.amount_chf)}${p&&r.amount_chf!=null?`<div class="sm mut">bezahlt ${chf(p)}<br>Rest ${chf(Math.max(r.amount_chf-p,0))}</div>`:''}</td><td>${sbadge(r.status)}</td></tr>`}).join('')||'<tr><td colspan="6" class="mut">Keine Einträge.</td></tr>'}</table></div></div>${rec}`);
+  ${a.map(r=>{const p=paidFor(r.id),ev=r.category==='event'?evRes(r):null;return `<tr class="click" onclick="editRec('${r.id}')"><td>${pbadge(r.priority)}</td><td><b>${esc(r.title)}</b> <span class="b g">${esc(CAT[r.category])}</span>${r.details?.art==='lieferantenbestellung'||r.details?.art==='bestellung'?' <span class="b g">Bestellung</span>':r.details?.art==='altforderung'?' <span class="b zu_pruefen">Altforderung</span>':''}<div class="mut sm">${esc(r.notes)}</div>${r.category==='event'&&kSum(r).n?`<div class="sm">Kassenabschlüsse: ${kSum(r).n} · Karten ${chf(kSum(r).unbar)} · Bar ${chf(kSum(r).bar)} · Trinkgeld ${chf(kSum(r).tg)}</div>`:''}${ev!=null?`<div class="sm">Ergebnis laut erfassten Werten: <b>${chf(ev)}</b></div>`:''}</td><td>${esc(r.responsible||'–')}</td><td class="num">${fd(r.due_date)}</td><td class="num r">${chf(r.amount_chf)}${p&&r.amount_chf!=null?`<div class="sm mut">bezahlt ${chf(p)}<br>Rest ${chf(Math.max(r.amount_chf-p,0))}</div>`:''}</td><td>${sbadge(r.status)}</td></tr>`}).join('')||'<tr><td colspan="6" class="mut">Keine Einträge.</td></tr>'}</table></div></div>${rec}`);
   const set=()=>{Object.assign(f,{q:$('#fq').value,st:$('#fst').value,pr:$('#fpr').value,who:$('#fwho').value,done:$('#fdone').checked});vList(key);const i=$('#fq');i.focus();i.setSelectionRange(f.q.length,f.q.length)};
   $('#fq').oninput=set;['#fst','#fpr','#fwho','#fdone'].forEach(s=>$(s).onchange=set);
   if(key==='personal'&&admin()){S.st&&S.st.monat===$('#stm').value?stShow():stLoad($('#stm').value)}
@@ -302,6 +302,56 @@ function editRec(id,cat){
     dlg.close();toast('Gespeichert');refresh()};
   dlg.showModal();if(id)cmLoad(id);
 }
+
+/* ---------- Bestellungen ---------- */
+const priceRec=()=>S.records.find(r=>r.details?.preise_provisorisch);
+const nextDow=(dow)=>{let d=today();for(let i=0;i<7;i++){if(new Date(d+'T12:00').getDay()===dow)return d;d=addDays(d,1)}return d};
+function vOrders(){
+  const pr=priceRec(),P=pr?.details.preise_provisorisch,pos=P?.positionen||[],orders=S.records.filter(r=>r.details?.art==='bestellung').sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||'')),o=S.ord??={q:{},extra:[],date:nextDow(2),liefer:nextDow(3)};
+  if(o.liefer<o.date)o.liefer=addDays(o.date,1);
+  M(`<h1>Bestellungen</h1>
+  ${P?`<div class="note ${P.bestaetigt?'':'red'}"><b>${P.bestaetigt?'Preise bestätigt am '+fd(P.bestaetigt_am):'Preis zu prüfen: provisorische Listenpreise'}</b>, gültig ab ${fd(P.gueltig_ab)}. ${esc(P.hinweis||'')}</div>`:'<div class="note red">Es ist noch keine Preisliste hinterlegt.</div>'}
+  <div class="card"><h2>Neue Bestellung Stardrinks / Heineken</h2>
+   <div class="bar"><label class="sm">Bestelldatum <input type="date" id="od" value="${o.date}"></label><label class="sm">Liefertermin <input type="date" id="ol" value="${o.liefer}"></label></div>
+   <div class="tw"><table><tr><th>Produkt</th><th class="r">Gebinde à</th><th class="r">Stückpreis</th><th class="r">Preis pro Gebinde</th><th class="r">Anzahl Gebinde</th><th class="r">Summe</th></tr>
+   ${pos.map((p,i)=>`<tr><td>${esc(p.produkt)}</td><td class="r">${p.gebinde}</td><td class="num r">${chf(p.stueckpreis)}</td><td class="num r">${chf(p.gebindepreis)}</td><td class="r"><input type="number" min="0" step="1" style="width:80px" class="oq" data-i="${i}" value="${o.q[i]||''}" oninput="ordCalc()"></td><td class="num r" id="os${i}">–</td></tr>`).join('')}
+   ${o.extra.map((x,j)=>`<tr><td>${esc(x.produkt)} <span class="b zu_pruefen">Preis zu prüfen</span></td><td></td><td></td><td></td><td class="r">${x.menge}</td><td class="r"><button class="btn xs sec" onclick="S.ord.extra.splice(${j},1);vOrders()">Entfernen</button></td></tr>`).join('')}
+   <tr><td colspan="5"><b>Total exkl. MWST${P&&!P.bestaetigt?' (provisorisch)':''}</b></td><td class="num r"><b id="ot">–</b></td></tr></table></div>
+   <p class="sm mut">Oder Bestelltext einfügen, eine Position pro Zeile, z. B. «5 Longneck» oder «3 Dose 50 cl»:</p>
+   <textarea id="otx" placeholder="5 Longneck&#10;2 Heineken 0.0&#10;3 Dose 50"></textarea>
+   <div class="bar"><button class="btn sec" onclick="ordParse()">Text übernehmen</button><button class="btn sec" onclick="ordCopy()">Bestelltext kopieren</button>${canEdit()?'<button class="btn" onclick="ordSave()">Bestellung speichern</button>':''}</div>
+   <p class="sm mut">Speichern legt nur den Eintrag an. Es wird nichts an Stardrinks gesendet und nichts bezahlt.</p></div>
+  <div class="card" style="margin-top:12px"><h2>Preisliste</h2>${pos.length?`<div class="tw"><table><tr><th>Produkt</th><th class="r">Gebinde à</th><th class="r">Stückpreis</th><th class="r">Pro Gebinde</th><th>Stand</th><th></th></tr>${pos.map((p,i)=>`<tr><td>${esc(p.produkt)}</td><td class="r">${p.gebinde}</td><td class="num r">${chf(p.stueckpreis)}</td><td class="num r">${chf(p.gebindepreis)}</td><td class="sm">${p.geaendert_am?'geändert '+fd(p.geaendert_am):'Liste ab '+fd(P.gueltig_ab)}</td><td>${admin()?`<button class="btn xs sec" onclick="ordPrice(${i})">Preis ändern</button>`:''}</td></tr>`).join('')}</table></div>`:''}
+   ${admin()&&P?`<div class="bar"><button class="btn sec" onclick="ordAdd()">Produkt hinzufügen</button>${P.bestaetigt?'':'<button class="btn sec" onclick="ordConfirm()">Preise als bestätigt markieren</button>'}</div>`:''}
+   ${P?.quelle?`<p class="sm mut">Quelle: <a href="${esc(P.quelle)}" target="_blank" rel="noopener">Preisliste</a>. ${esc(P.quelle_geprueft||'')}</p>`:''}</div>
+  <div class="card" style="margin-top:12px"><h2>Erfasste Bestellungen</h2><div class="tw"><table><tr><th>Bestellt</th><th>Positionen</th><th class="r">Summe exkl. MWST</th><th>Lieferung</th><th>Status</th></tr>
+   ${orders.map(r=>{const d=r.details;return `<tr class="click" onclick="editRec('${r.id}')"><td class="num">${fd(d.bestelldatum)}</td><td class="sm">${(d.positionen||[]).map(p=>esc(p.menge+' × '+p.produkt)).join('<br>')}</td><td class="num r">${chf(d.summe_exkl_mwst)}${d.preise_bestaetigt?'':'<div class="sm" style="color:var(--red)">Preis zu prüfen</div>'}</td><td class="num">${fd(d.liefertermin)}</td><td>${sbadge(r.status)}</td></tr>`}).join('')||'<tr><td colspan="5" class="mut">Noch keine Bestellung erfasst.</td></tr>'}</table></div></div>`);
+  $('#od').onchange=e=>{o.date=e.target.value};$('#ol').onchange=e=>{o.liefer=e.target.value};ordCalc();
+}
+function ordLines(){const pos=priceRec()?.details.preise_provisorisch.positionen||[],o=S.ord,L=[];document.querySelectorAll('.oq').forEach(e=>{o.q[e.dataset.i]=+e.value||0});
+  pos.forEach((p,i)=>{const m=o.q[i]||0;if(m>0)L.push({produkt:p.produkt,gebinde:p.gebinde,menge:m,gebindepreis:p.gebindepreis,summe:Math.round(m*p.gebindepreis*100)/100})});return L}
+function ordCalc(){const pos=priceRec()?.details.preise_provisorisch.positionen||[],L=ordLines();pos.forEach((p,i)=>{const m=S.ord.q[i]||0,e=$('#os'+i);if(e)e.textContent=m>0?chf(m*p.gebindepreis):'–'});$('#ot').textContent=chf(L.reduce((s,l)=>s+l.summe,0))}
+function ordParse(){
+  const pos=priceRec()?.details.preise_provisorisch.positionen||[],o=S.ord;let hit=0,miss=0;ordLines();
+  $('#otx').value.split(/[\n;]+/).map(s=>s.trim()).filter(Boolean).forEach(line=>{const m=line.match(/^(\d+)\s*(?:x|×|mal|stk\.?|kisten?|harass(?:e|en)?|gebinde)?\s*(.+)$/i);if(!m){miss++;o.extra.push({produkt:line,menge:1});return}
+    const tok=m[2].toLowerCase().replace(/heineken/g,'').split(/[^a-z0-9.äöü]+/).filter(t=>t&&t!=='cl'),sc=pos.map(p=>{const n=p.produkt.toLowerCase();return tok.length?tok.filter(t=>n.includes(t)).length/tok.length:0}),best=Math.max(0,...sc),idx=sc.map((s,i)=>s===best?i:-1).filter(i=>i>=0);
+    if(best>=1&&idx.length===1){o.q[idx[0]]=(o.q[idx[0]]||0)+ +m[1];hit++}else{o.extra.push({produkt:m[2],menge:+m[1]});miss++}});
+  toast(hit+' Position(en) erkannt'+(miss?', '+miss+' ohne eindeutigen Preis':''),miss>0&&!hit);vOrders();
+}
+function ordText(){const L=ordLines(),o=S.ord;return 'Bestellung Le Portier N°35 (PrimeVibes GmbH), Kundennummer 435753\nLieferung bis '+fd(o.liefer)+'\n\n'+[...L.map(l=>l.menge+' × '+l.produkt+' ('+l.gebinde+'er Gebinde)'),...o.extra.map(x=>x.menge+' × '+x.produkt)].join('\n')}
+async function ordCopy(){const t=ordText();try{await navigator.clipboard.writeText(t);toast('Bestelltext kopiert')}catch(_){prompt('Bestelltext zum Kopieren:',t)}}
+async function ordSave(){
+  const L=ordLines(),o=S.ord,P=priceRec()?.details.preise_provisorisch,all=[...L,...o.extra.map(x=>({produkt:x.produkt,menge:x.menge,preis_zu_pruefen:true}))];if(!all.length)return toast('Bitte mindestens eine Position erfassen',1);
+  const sum=Math.round(L.reduce((s,l)=>s+l.summe,0)*100)/100,ok=!!P?.bestaetigt&&!o.extra.length;
+  const {error}=await sb.from('lp_records').insert({category:'lieferant',title:'Bestellung Stardrinks / Heineken '+fd(o.date),status:'offen',priority:'mittel',due_date:o.liefer||null,responsible:S.name,evidence:'Bestellrechner',
+    notes:'Bestellung für '+fd(o.date)+', Lieferung bis '+fd(o.liefer)+'. Summe CHF '+sum.toFixed(2)+' exkl. MWST'+(ok?'':', mit provisorischen Listenpreisen gerechnet (Preis zu prüfen)')+'. Keine Zahlung ausgelöst.',
+    details:{art:'bestellung',lieferant:'stardrinks',bestelldatum:o.date,liefertermin:o.liefer,positionen:all,summe_exkl_mwst:sum,preise_bestaetigt:ok,preisstand:P?.gueltig_ab||null}});
+  if(error)return fail(error);S.ord=null;toast('Bestellung gespeichert');refresh();
+}
+async function ordPut(P){const pr=priceRec(),{error}=await sb.from('lp_records').update({details:{...pr.details,preise_provisorisch:P}}).eq('id',pr.id);error?fail(error):(toast('Preisliste gespeichert'),refresh())}
+function ordPrice(i){const P=structuredClone(priceRec().details.preise_provisorisch),p=P.positionen[i],v=prompt('Neuer Stückpreis in CHF exkl. MWST für «'+p.produkt+'»:',p.stueckpreis);if(v==null)return;const n=num(v);if(isNaN(n)||n<=0)return toast('Preis ungültig',1);p.stueckpreis=n;p.gebindepreis=Math.round(n*p.gebinde*100)/100;p.geaendert_am=today();ordPut(P)}
+function ordAdd(){const P=structuredClone(priceRec().details.preise_provisorisch),name=prompt('Produktname:');if(!name)return;const g=parseInt(prompt('Stück pro Gebinde:','24'),10),n=num(prompt('Stückpreis in CHF exkl. MWST:')||'');if(!(g>0)||isNaN(n)||n<=0)return toast('Angaben ungültig',1);P.positionen.push({produkt:name.trim(),gebinde:g,stueckpreis:n,gebindepreis:Math.round(n*g*100)/100,geaendert_am:today()});ordPut(P)}
+function ordConfirm(){if(!confirm('Alle Preise als bestätigt markieren?\n\nNur bestätigen, wenn sie mit einer aktuellen Stardrinks-Rechnung oder Kundenpreisliste übereinstimmen.'))return;const P=structuredClone(priceRec().details.preise_provisorisch);P.bestaetigt=true;P.bestaetigt_am=today();ordPut(P)}
 
 /* ---------- Finanzen ---------- */
 function vFin(){

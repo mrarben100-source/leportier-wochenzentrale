@@ -89,7 +89,7 @@ async function boot(){
   const {data:m}=await sb.from('lp_members').select('role,display_name').eq('user_id',S.user.id).maybeSingle();
   if(!m) return root.innerHTML=`<div class="login"><div class="card"><h1>Zugang noch nicht freigeschaltet</h1><p>Angemeldet als <b>${esc(S.user.email)}</b>. Dein Konto muss zuerst von Arben freigeschaltet werden.</p><button class="btn sec" onclick="logout()">Abmelden</button></div></div>`;
   S.role=m.role;S.name=m.display_name||S.user.email;
-  await load();shell();route();
+  await load();shell();route();autoMail();
 }
 function loginView(msg){
   root.innerHTML=`<div class="login"><div class="card"><h1>Le Portier N°35</h1><p class="mut">Wochenzentrale – Anmeldung</p>
@@ -159,7 +159,7 @@ function vHome(){
    <div class="card"><h2>Priorität 1 ohne Fälligkeit</h2>${tbl(p1,'Keine.')}</div>
    <div class="card"><h2>Events und Eventabrechnungen</h2>${tbl(ev.slice().sort((a,b)=>(b.due_date||'').localeCompare(a.due_date||'')).slice(0,6),'Keine Events.')}</div>
    ${admin()?`<div class="card"><h2>Einnahmen und Ausgaben (Bank)</h2>${chart()}</div>`:''}
-   <div class="card"><h2>E-Mail-Posteingang</h2><p class="mut sm"><a href="#email">Posteingang öffnen</a></p></div>
+   <div class="card"><h2>E-Mail-Posteingang</h2>${autoBox()}${mailRecent()}<p class="mut sm"><a href="#email">Posteingang öffnen</a></p></div>
   </div>`);
 }
 function months(){const m={};S.tx.forEach(t=>{if(t.review_state==='duplikat')return;const k=t.booking_date.slice(0,7);m[k]??={in:0,out:0};+t.amount_chf>=0?m[k].in+=+t.amount_chf:m[k].out-=+t.amount_chf});return m}
@@ -439,7 +439,7 @@ function vCal(){
 /* ---------- E-Mail / Protokoll ---------- */
 function vMail(){
   if(!admin())return M('<h1>E-Mail-Posteingang</h1><div class="note">Nur für Admin sichtbar.</div>');
-  M(`<h1>E-Mail-Posteingang</h1><p class="mut">Hostpoint-Postfach, nur lesend. Es werden keine E-Mails verändert, gelöscht oder versendet.</p><div class="bar"><button class="btn" onclick="mailLoad()">Posteingang laden</button></div><div id="mbox"></div>`);
+  M(`<h1>E-Mail-Posteingang</h1><p class="mut">Hostpoint-Postfach, nur lesend. Beim Öffnen des Dashboards werden neue PDF-Anhänge und BF-POS-Tagesabschlüsse automatisch archiviert. Es werden keine E-Mails verändert, gelöscht oder versendet.</p>${autoBox()}<div class="bar"><button class="btn" onclick="mailLoad()">Posteingang laden</button></div><div id="mbox"></div>`);
   if(S.mail)mailShow();
 }
 async function mailLoad(){
@@ -463,31 +463,47 @@ function invGuess(lines){
     if(!due){const m=t.match(/(zahlbar bis|fällig(?:keit)?(?: am| bis)?|zahlungsfrist(?: bis)?|bis spätestens|zahlungsziel)\D{0,20}(\d{1,2}\.\d{1,2}\.\d{2,4})/i);if(m)due=pdate(m[2])}});
   return{amt,due};
 }
-async function mailTake(uid){
-  toast('Anhänge werden geholt…');
+const mailDocId=(uid,name)=>'mail_'+uid+'_'+safe(name);
+const mailDone=m=>m.attachments.every(a=>{const tn=a.type+a.name;if(/pdf/i.test(tn))return S.docs.some(x=>x.library_file_id===mailDocId(m.uid,a.name)||(x.file_name===a.name&&/^mail_[0-9a-f-]{36}$/.test(x.library_file_id)));
+  if(/csv/i.test(tn)&&/^tagesabschluss/i.test(a.name)){const n=+(a.name.match(/-(\d+)\.csv$/i)||[])[1];return S.records.some(r=>(r.details?.kassen||[]).some(k=>k.abschluss===n))}return true});
+async function mailTake(uid,auto){
+  const log=[];if(!auto)toast('Anhänge werden geholt…');
   const {data,error}=await sb.functions.invoke('lp-mail',{body:{action:'attachments',uid}});let d=data;
   if(error){try{d=await error.context.json()}catch(_){d={error:error.message}}}
-  if(d?.error)return toast('Fehler: '+d.error,1);
-  const from=d.from_name||d.from_address,when=d.date?iso(new Date(d.date)):today(),src='E-Mail von '+from+' <'+d.from_address+'> vom '+fd(when)+': '+d.subject;let done=0;
+  if(d?.error){if(!auto)toast('Fehler: '+d.error,1);return log}
+  const from=d.from_name||d.from_address,when=d.date?iso(new Date(d.date)):today(),src='E-Mail von '+from+' <'+d.from_address+'> vom '+fd(when)+': '+d.subject;
   for(const f of d.files){
-    if(f.skipped){toast(f.name+': '+f.skipped,1);continue}
-    const bytes=Uint8Array.from(atob(f.b64),c=>c.charCodeAt(0)),key='mail-'+uid+'-'+safe(f.name),pos=/bfpos/i.test(d.from_address)||/^tagesabschluss/i.test(f.name),cat=pos?'Eventabrechnungen':'Lieferantenrechnungen';
-    if(/\.csv$/i.test(f.name)){if(pos&&await kasseAdd(parseBfpos(new TextDecoder().decode(bytes))))done++;continue}
-    let doc=S.docs.find(x=>x.file_name===f.name&&+x.size_bytes===bytes.length&&x.storage_path);
-    if(!doc){const p=spath(cat,f.name),u=await sb.storage.from('lp-dokumente').upload(p,new Blob([bytes],{type:f.type}),{contentType:f.type});if(u.error){fail(u.error);continue}
-      const r=await sb.from('lp_documents').insert({library_file_id:'mail_'+crypto.randomUUID(),file_name:f.name,category:cat,state:'in_supabase',storage_path:p,doc_date:when,modified_on:today(),size_bytes:bytes.length,notes:src.slice(0,300)}).select().single();
-      if(r.error){fail(r.error);continue}doc=r.data}
-    done++;
+    if(f.skipped){log.push('«'+f.name+'» übersprungen ('+f.skipped+')');continue}
+    const isPdf=f.type==='application/pdf',isCsv=/\.csv$/i.test(f.name),pos=/bfpos/i.test(d.from_address)||/^tagesabschluss/i.test(f.name),cat=pos?'Eventabrechnungen':'Lieferantenrechnungen',key='mail-'+uid+'-'+safe(f.name);
+    if(auto&&!isPdf&&!(isCsv&&pos))continue;
+    const bytes=Uint8Array.from(atob(f.b64),c=>c.charCodeAt(0));
+    if(isCsv){if(pos){const K=parseBfpos(new TextDecoder().decode(bytes));if(await kasseAdd(K))log.push('Tagesabschluss #'+K.abschluss+' ('+chf(K.brutto)+') dem Event vom '+fd(K.datum)+' zugeordnet')}continue}
+    let doc=S.docs.find(x=>x.library_file_id===mailDocId(uid,f.name)||(x.file_name===f.name&&+x.size_bytes===bytes.length&&x.storage_path));
+    if(!doc){const p=spath(cat,f.name),u=await sb.storage.from('lp-dokumente').upload(p,new Blob([bytes],{type:f.type}),{contentType:f.type});if(u.error){log.push('«'+f.name+'»: Upload fehlgeschlagen ('+u.error.message+')');continue}
+      const r=await sb.from('lp_documents').insert({library_file_id:mailDocId(uid,f.name),file_name:f.name,category:cat,state:'in_supabase',storage_path:p,doc_date:when,modified_on:today(),size_bytes:bytes.length,notes:src.slice(0,300)}).select().single();
+      if(r.error){log.push('«'+f.name+'»: '+r.error.message);continue}doc=r.data;S.docs.push(doc);log.push('«'+f.name+'» von '+from+' archiviert unter '+cat)}
     if(pos||S.records.some(r=>r.source_key===key)||doc.record_id)continue;
     let g={amt:null,due:null};
-    if(f.type==='application/pdf'){try{await ensurePdf();g=invGuess(await pdfLines(await pdfjsLib.getDocument({data:bytes.slice()}).promise))}catch(e){console.warn(e)}}
-    if(!confirm('«'+f.name+'» liegt im Archiv.\n\nAls Rechnungsentwurf «Zu prüfen» erfassen?\nAbsender: '+from+'\nBetrag (aus PDF gelesen, ungeprüft): '+(g.amt!=null?chf(g.amt):'nicht erkannt')+'\nFällig: '+(g.due?fd(g.due):'nicht erkannt')))continue;
-    const r=await sb.from('lp_records').insert({source_key:key,category:'zahlung',title:'Rechnung '+from,status:'zu_pruefen',priority:'mittel',amount_chf:g.amt,due_date:g.due,responsible:'Arben',evidence:f.name,notes:'Entwurf aus '+src.slice(0,250)+'. Betrag und Fälligkeit automatisch aus dem PDF gelesen und nicht bestätigt. Keine Zahlung ausgelöst.',details:{quelle:'email',absender:d.from_address}}).select('id').single();
-    if(r.error){fail(r.error);continue}
-    await sb.from('lp_documents').update({record_id:r.data.id}).eq('library_file_id',doc.library_file_id);
+    if(isPdf){try{await ensurePdf();g=invGuess(await pdfLines(await pdfjsLib.getDocument({data:bytes.slice()}).promise))}catch(e){console.warn(e)}}
+    const looks=/rechnung|invoice|faktura|mahnung|zahlungserinnerung/i.test(d.subject+' '+f.name);
+    if(auto?!looks:!confirm('«'+f.name+'» liegt im Archiv.\n\nAls Rechnungsentwurf «Zu prüfen» erfassen?\nAbsender: '+from+'\nBetrag (aus PDF gelesen, ungeprüft): '+(g.amt!=null?chf(g.amt):'nicht erkannt')+'\nFällig: '+(g.due?fd(g.due):'nicht erkannt')))continue;
+    const r=await sb.from('lp_records').insert({source_key:key,category:'zahlung',title:'Rechnung '+from,status:'zu_pruefen',priority:'mittel',amount_chf:g.amt,due_date:g.due,responsible:'Arben',evidence:f.name,notes:'Entwurf aus '+src.slice(0,250)+'. Betrag und Fälligkeit automatisch aus dem PDF gelesen und nicht bestätigt. Keine Zahlung ausgelöst.',details:{quelle:'email',absender:d.from_address}}).select().single();
+    if(r.error){log.push('Entwurf für «'+f.name+'»: '+r.error.message);continue}
+    S.records.push(r.data);await sb.from('lp_documents').update({record_id:r.data.id}).eq('library_file_id',doc.library_file_id);
+    log.push('Rechnungsentwurf «Rechnung '+from+'» angelegt, Betrag '+(g.amt!=null?chf(g.amt):'nicht erkannt')+', Status «Zu prüfen»');
   }
-  if(!done)toast('Keine passenden Anhänge gefunden');await load();
+  if(!auto){S.autoLog=[...(S.autoLog||[]),...log];toast(log.length?log.length+' Schritt(e) erledigt':'Keine neuen Anhänge');await load();if(location.hash==='#email')vMail()}
+  return log;
 }
+async function autoMail(){
+  if(!admin()||S.autoRan)return;S.autoRan=true;
+  const {data,error}=await sb.functions.invoke('lp-mail',{body:{limit:40}});if(error||!data||data.error)return;S.mail=data;
+  const todo=data.messages.filter(m=>m.attachments.some(a=>/pdf/i.test(a.type+a.name)||(/csv/i.test(a.type+a.name)&&/^tagesabschluss/i.test(a.name)))&&!mailDone(m)).reverse(),log=[];
+  for(const m of todo)log.push(...await mailTake(m.uid,true));
+  S.autoLog=log;S.autoAt=new Date();if(log.length){await load();toast(log.length+' Schritt(e) aus E-Mails automatisch erledigt')}route();
+}
+const autoBox=()=>S.autoAt?`<div class="note${S.autoLog.length?'':' '}"><b>Automatische E-Mail-Verarbeitung ${S.autoAt.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'})} Uhr:</b> ${S.autoLog.length?'<ul style="margin:6px 0 0;padding-left:18px">'+S.autoLog.map(l=>'<li>'+esc(l)+'</li>').join('')+'</ul>':'keine neuen Anhänge.'}</div>`:(admin()?'<p class="mut sm">E-Mail-Posteingang wird geprüft…</p>':'');
+const mailRecent=()=>{const a=S.docs.filter(d=>/^mail_/.test(d.library_file_id)).sort((x,y)=>(y.created_at||'').localeCompare(x.created_at||'')).slice(0,6);return a.length?'<h3 style="margin-top:10px">Zuletzt aus E-Mails archiviert</h3>'+a.map(d=>`<div class="sm" style="padding:4px 0;border-bottom:1px solid var(--line)">${fd((d.created_at||'').slice(0,10))} · ${esc(d.file_name)} <span class="mut">(${esc(d.category)})</span></div>`).join(''):''};
 function vLog(){
   const lab={insert:'Neu',update:'Geändert',delete:'Gelöscht'},tn={lp_records:'Eintrag',lp_recurring:'Wiederkehrend',lp_documents:'Dokument',lp_bank_tx:'Bankbuchung',lp_bank_balance:'Kontostand'};
   M(`<h1>Änderungsprotokoll</h1><p class="mut">Jede Änderung wird automatisch mit Zeitpunkt und altem/neuem Wert gespeichert. Angezeigt werden die letzten 150.</p><div class="card"><div class="tw"><table><tr><th>Zeit</th><th>Bereich</th><th>Aktion</th><th>Betroffen</th><th>Geänderte Felder</th></tr>

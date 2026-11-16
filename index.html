@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Le Portier N°35 – Wochenzentrale</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#f4f2ee;--card:#fff;--ink:#1c1b19;--mut:#6f6a62;--line:#e3dfd7;--acc:#8a6a2f;--accbg:#f3ead8;--red:#b3261e;--redbg:#fbe9e7;--grn:#1f7a4a;--grnbg:#e4f3ea;--amb:#9a6200;--ambbg:#fdf0d5;--blu:#1f5fa8;--blubg:#e4eefa;--side:#1c1b19}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:0 0 10px}h3{font-size:14px;margin:0 0 6px}
+.mut{color:var(--mut)}.sm{font-size:13px}.num{font-variant-numeric:tabular-nums;white-space:nowrap}.r{text-align:right}
+#app{display:flex;min-height:100vh}
+nav{width:220px;background:var(--side);color:#eee;padding:18px 10px;flex-shrink:0;position:sticky;top:0;height:100vh;overflow:auto}
+nav .brand{font-weight:700;padding:0 10px 14px;letter-spacing:.3px}nav .brand span{display:block;font-weight:400;font-size:12px;color:#aaa}
+nav a{display:block;color:#ddd;text-decoration:none;padding:9px 10px;border-radius:8px;margin-bottom:2px}
+nav a.on{background:#3a352c;color:#fff}nav a:hover{background:#2c2925}
+nav .who{margin-top:16px;padding:10px;font-size:12px;color:#aaa;border-top:1px solid #333}
+nav button{background:none;border:1px solid #555;color:#ddd;border-radius:6px;padding:5px 9px;margin-top:6px;cursor:pointer}
+main{flex:1;padding:22px;min-width:0;max-width:1250px}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin:14px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.kpi .v{font-size:22px;font-weight:700;margin-top:4px}.kpi .l{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px}
+.cols{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+table{width:100%;border-collapse:collapse}th{font-size:12px;text-align:left;color:var(--mut);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}tr.click{cursor:pointer}tr.click:hover{background:#faf8f4}
+.tw{overflow-x:auto}
+.b{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.b.offen{background:var(--blubg);color:var(--blu)}.b.in_bearbeitung{background:var(--ambbg);color:var(--amb)}.b.erledigt{background:var(--grnbg);color:var(--grn)}.b.zu_pruefen{background:var(--redbg);color:var(--red)}
+.b.p1{background:var(--red);color:#fff}.b.p2{background:var(--accbg);color:var(--acc)}.b.p3{background:#eee;color:#555}.b.g{background:#eee;color:#555}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;align-items:center}
+input,select,textarea{font:inherit;padding:7px 9px;border:1px solid #cfc9bd;border-radius:8px;background:#fff;color:var(--ink);max-width:100%}
+textarea{width:100%;min-height:70px}
+button.btn{font:inherit;padding:7px 12px;border-radius:8px;border:1px solid var(--acc);background:var(--acc);color:#fff;cursor:pointer}
+button.btn.sec{background:#fff;color:var(--acc)}button.btn.xs{padding:3px 8px;font-size:12px}
+dialog{border:none;border-radius:14px;padding:0;width:min(680px,94vw);max-height:92vh}dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog form{padding:18px}.fg{display:grid;grid-template-columns:1fr 1fr;gap:10px}.fg label{display:flex;flex-direction:column;font-size:12px;color:var(--mut);gap:3px}.fg .w{grid-column:1/-1}
+.fg input,.fg select{width:100%}
+.note{background:var(--ambbg);border:1px solid #ecd9a8;color:#5c4300;padding:10px 12px;border-radius:10px;margin:10px 0;font-size:14px}
+.note.red{background:var(--redbg);border-color:#f1c4bf;color:#7a1b15}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:10px;display:none;z-index:99;max-width:90vw}
+.login{max-width:380px;margin:9vh auto;padding:0 16px}.login .card>*{width:100%;margin-bottom:10px}
+.week{display:grid;grid-template-columns:repeat(7,minmax(120px,1fr));gap:8px;overflow-x:auto}
+.day{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px;min-height:120px}.day.today{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+.day .d{font-size:12px;color:var(--mut);margin-bottom:6px}.ev{font-size:12px;background:var(--accbg);border-radius:6px;padding:4px 6px;margin-bottom:4px;cursor:pointer}.ev.rec{background:var(--blubg)}
+.chart{display:flex;align-items:flex-end;gap:10px;height:150px;padding-top:8px}.chart .m{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:38px}
+.chart .bars{display:flex;align-items:flex-end;gap:3px;height:120px}.chart .bars i{width:14px;display:block;border-radius:3px 3px 0 0}.chart .in{background:var(--grn)}.chart .out{background:var(--red)}
+@media(max-width:800px){#app{flex-direction:column}nav{width:100%;height:auto;position:static;display:flex;overflow-x:auto;padding:8px;gap:4px;align-items:center}nav .brand{padding:0 8px;white-space:nowrap}nav .brand span{display:none}nav a{white-space:nowrap;margin:0;padding:7px 10px}nav .who{border:none;margin:0;padding:0 8px;white-space:nowrap}main{padding:14px}.fg{grid-template-columns:1fr}td,th{padding:6px}}
+@media print{nav,.bar,button{display:none!important}main{padding:0}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<dialog id="dlg"></dialog>
+<div id="toast"></div>
+<script>
+const sb = supabase.createClient('https://pvrvhkyvnlafipbmidon.supabase.co','sb_publishable_dE2ZMkj9nEFy7lJ4miiTVw_5wvggHC_');
+const $=s=>document.querySelector(s), root=$('#root'), dlg=$('#dlg');
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const chf=n=>n==null||n===''?'–':'CHF '+Number(n).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2});
+const iso=d=>{const x=new Date(d.getTime()-d.getTimezoneOffset()*6e4);return x.toISOString().slice(0,10)};
+const today=()=>iso(new Date());
+const fd=s=>s?s.slice(8,10)+'.'+s.slice(5,7)+'.'+s.slice(0,4):'–';
+const addDays=(s,n)=>{const d=new Date(s+'T12:00');d.setDate(d.getDate()+n);return iso(d)};
+const monday=s=>{const d=new Date(s+'T12:00');return addDays(s,-((d.getDay()+6)%7))};
+const ST={offen:'Offen',in_bearbeitung:'In Bearbeitung',erledigt:'Erledigt',zu_pruefen:'Zu prüfen'};
+const PR={hoch:'1',mittel:'2',niedrig:'3'};
+const CAT={aufgabe:'Aufgabe',zahlung:'Zahlung',event:'Event',lieferant:'Lieferant',dokument:'Dokument',personal:'Personal',vertrag:'Vertrag'};
+const PEOPLE=['Arben','Dennis','Levent'];
+const DOCCAT={'Lieferantenrechnungen':'lieferantenrechnungen','Bankauszüge':'vertraulich/bankauszuege','Zahlungsbestätigungen':'zahlungsbestaetigungen','Eventabrechnungen':'eventabrechnungen','Arbeitsverträge':'vertraulich/arbeitsvertraege','Lohnabrechnungen':'vertraulich/lohnabrechnungen','Versicherungen':'versicherungen','Mietvertrag':'mietvertrag','Betreibungen':'vertraulich/betreibungen','Buchhaltung':'vertraulich/buchhaltung','Sponsoringverträge':'sponsoringvertraege','personal':'vertraulich/personal','finanzen':'vertraulich/finanzen','buchhaltung':'vertraulich/buchhaltung','event':'eventabrechnungen','lieferant/vertrag':'lieferant-vertrag'};
+const KIND={normal:'Normal',lieferantenbestellung:'Lieferantenbestellung',schuldenrueckzahlung:'Schuldenrückzahlung',lohn:'Lohn',event:'Event',sonstiges:'Sonstiges'};
+const RV={ok:'OK',zu_pruefen:'Zu prüfen',duplikat:'Duplikat'};
+const EVF=[['veranstalter','Veranstalter'],['verantwortlich','Verantwortliche'],['dj','DJ'],['security','Security'],['bar','Bar'],['garderobe','Garderobe'],['personalstunden','Personalstunden','n'],['ein_ticket','Ticketeinnahmen CHF','n'],['ein_karte','Karteneinnahmen CHF','n'],['ein_twint','TWINT-Einnahmen CHF','n'],['ein_bar','Bareinnahmen CHF','n'],['kosten_getraenke','Getränkekosten CHF','n'],['kosten_weitere','Weitere Ausgaben CHF','n'],['fehlende_belege','Fehlende Belege'],['freigabe','Zahlungsfreigabe']];
+let S={user:null,role:null,records:[],recurring:[],docs:[],tx:[],bal:[],changes:[],f:{}};
+const admin=()=>S.role==='admin', canEdit=()=>S.role==='admin'||S.role==='editor';
+function toast(m,err){const t=$('#toast');t.textContent=m;t.style.background=err?'#b3261e':'#222';t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',err?6000:2600)}
+const fail=e=>{console.error(e);toast('Fehler: '+(e.message||e),1)};
+const sbadge=s=>`<span class="b ${esc(s)}">${esc(ST[s]||s)}</span>`;
+const pbadge=p=>`<span class="b p${PR[p]||2}" title="Priorität">P${PR[p]||'?'}</span>`;
+const opts=(o,sel,all)=>(all?`<option value="">${all}</option>`:'')+Object.entries(o).map(([k,v])=>`<option value="${esc(k)}"${k===sel?' selected':''}>${esc(v)}</option>`).join('');
+
+/* ---------- Anmeldung ---------- */
+async function boot(){
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session) return loginView();
+  S.user=session.user;
+  const {data:m}=await sb.from('lp_members').select('role,display_name').eq('user_id',S.user.id).maybeSingle();
+  if(!m) return root.innerHTML=`<div class="login"><div class="card"><h1>Zugang noch nicht freigeschaltet</h1><p>Angemeldet als <b>${esc(S.user.email)}</b>. Dein Konto muss zuerst von Arben freigeschaltet werden.</p><button class="btn sec" onclick="logout()">Abmelden</button></div></div>`;
+  S.role=m.role;S.name=m.display_name||S.user.email;
+  await load();shell();route();
+}
+function loginView(msg){
+  root.innerHTML=`<div class="login"><div class="card"><h1>Le Portier N°35</h1><p class="mut">Wochenzentrale – Anmeldung</p>
+  ${msg?`<div class="note">${esc(msg)}</div>`:''}
+  <input id="le" type="email" placeholder="E-Mail" autocomplete="username"><input id="lp" type="password" placeholder="Passwort (mind. 8 Zeichen)" autocomplete="current-password">
+  <button class="btn" id="li">Anmelden</button><button class="btn sec" id="lr">Neues Konto registrieren</button>
+  <button class="btn sec" id="lf">Passwort vergessen</button></div></div>`;
+  const cred=()=>({email:$('#le').value.trim(),password:$('#lp').value});
+  $('#li').onclick=async()=>{const {error}=await sb.auth.signInWithPassword(cred());error?toast('Anmeldung fehlgeschlagen: '+error.message,1):boot()};
+  $('#lp').onkeydown=e=>{if(e.key==='Enter')$('#li').click()};
+  $('#lr').onclick=async()=>{const c=cred();if(c.password.length<8)return toast('Passwort mindestens 8 Zeichen',1);const {data,error}=await sb.auth.signUp({...c,options:{emailRedirectTo:location.origin+location.pathname}});if(error)return fail(error);data.session?boot():loginView('Konto erstellt. Bitte den Link in der Bestätigungs-E-Mail anklicken und danach hier anmelden.')};
+  $('#lf').onclick=async()=>{const e=$('#le').value.trim();if(!e)return toast('E-Mail eintragen',1);const {error}=await sb.auth.resetPasswordForEmail(e,{redirectTo:location.origin+location.pathname});error?fail(error):toast('E-Mail zum Zurücksetzen gesendet')};
+}
+async function logout(){await sb.auth.signOut();location.hash='';location.reload()}
+sb.auth.onAuthStateChange(async ev=>{if(ev==='PASSWORD_RECOVERY'){const p=prompt('Neues Passwort (mind. 8 Zeichen):');if(p&&p.length>=8){const {error}=await sb.auth.updateUser({password:p});error?fail(error):toast('Passwort geändert')}}});
+
+async function load(){
+  const q=[sb.from('lp_records').select('*').order('due_date',{nullsFirst:false}),sb.from('lp_recurring').select('*').order('next_due'),sb.from('lp_documents').select('*').order('file_name'),
+    sb.from('lp_bank_tx').select('*').order('booking_date',{ascending:false}).limit(3000),sb.from('lp_bank_balance').select('*').order('as_of',{ascending:false}).limit(5),
+    sb.from('lp_changes').select('*').order('changed_at',{ascending:false}).limit(150)];
+  const r=await Promise.all(q);const e=r.find(x=>x.error);if(e)fail(e.error);
+  [S.records,S.recurring,S.docs,S.tx,S.bal,S.changes]=r.map(x=>x.data||[]);
+}
+async function refresh(){await load();route()}
+
+/* ---------- Rahmen ---------- */
+const NAV=[['uebersicht','Übersicht'],['aufgaben','Aufgaben'],['finanzen','Finanzen'],['events','Events'],['lieferanten','Lieferanten'],['personal','Personal'],['dokumente','Dokumente'],['kalender','Kalender'],['email','E-Mail'],['protokoll','Protokoll']];
+function shell(){
+  root.innerHTML=`<div id="app"><nav><div class="brand">Le Portier N°35<span>Wochenzentrale</span></div>${NAV.map(([k,l])=>`<a href="#${k}" data-k="${k}">${l}</a>`).join('')}
+  <div class="who">${esc(S.name)} · ${esc({admin:'Admin',editor:'Bearbeiter',viewer:'Nur lesen'}[S.role])}<br><button onclick="logout()">Abmelden</button></div></nav><main id="main"></main></div>`;
+}
+window.onhashchange=()=>S.role&&route();
+function route(){
+  const k=(location.hash.slice(1)||'uebersicht');document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.k===k));
+  ({uebersicht:vHome,aufgaben:()=>vList('aufgaben'),finanzen:vFin,events:()=>vList('events'),lieferanten:()=>vList('lieferanten'),personal:()=>vList('personal'),dokumente:vDocs,kalender:vCal,email:vMail,protokoll:vLog}[k]||vHome)();
+}
+const M=h=>$('#main').innerHTML=h;
+const open=r=>r.status!=='erledigt';
+const paidFor=id=>S.tx.filter(t=>t.record_id===id).reduce((a,t)=>a+Math.abs(+t.amount_chf),0);
+
+/* ---------- Übersicht ---------- */
+function vHome(){
+  const t=today(),ws=monday(t),we=addDays(ws,6),R=S.records;
+  const pay=R.filter(r=>r.category==='zahlung'),po=pay.filter(open),pd=pay.filter(r=>!open(r));
+  const sum=a=>a.reduce((x,r)=>x+(+r.amount_chf||0),0);
+  const crit=R.filter(r=>open(r)&&((r.due_date&&r.due_date<=addDays(t,7))||(/betreibung|mahnung/i.test(r.title+' '+r.notes)&&r.priority==='hoch')));
+  const todayL=R.filter(r=>open(r)&&r.due_date&&r.due_date<=t), weekL=R.filter(r=>open(r)&&r.due_date&&r.due_date>t&&r.due_date<=we);
+  const rec=S.recurring.filter(r=>r.active&&r.next_due<=we);
+  const p1=R.filter(r=>open(r)&&r.priority==='hoch'&&!r.due_date);
+  const b=S.bal[0],ev=R.filter(r=>r.category==='event'),miss=S.docs.filter(d=>!d.storage_path).length;
+  const row=r=>`<tr class="click" onclick="editRec('${r.id}')"><td>${pbadge(r.priority)}</td><td>${esc(r.title)}<div class="mut sm">${esc(CAT[r.category])} · ${esc(r.responsible||'nicht zugewiesen')}</div></td><td class="num r">${r.amount_chf!=null?chf(r.amount_chf):''}<div class="sm ${r.due_date&&r.due_date<t?'':'mut'}" style="${r.due_date&&r.due_date<t?'color:var(--red)':''}">${r.due_date?fd(r.due_date):''}</div></td><td>${sbadge(r.status)}</td></tr>`;
+  const tbl=(a,empty)=>a.length?`<div class="tw"><table>${a.map(row).join('')}</table></div>`:`<p class="mut sm">${empty}</p>`;
+  M(`<h1>Übersicht</h1><p class="mut">Woche ${fd(ws)} – ${fd(we)}</p>
+  <div class="grid">
+   ${admin()?`<div class="card kpi"><div class="l">Kontostand Valiant</div><div class="v num">${b?chf(b.amount_chf):'–'}</div><div class="sm mut">${b?'Stand '+fd(b.as_of):'kein Stand erfasst'}</div></div>`:''}
+   <div class="card kpi"><div class="l">Offene Zahlungen</div><div class="v num">${chf(sum(po))}</div><div class="sm mut">${po.length} Positionen, ${po.filter(r=>r.amount_chf==null).length} ohne Betrag</div></div>
+   <div class="card kpi"><div class="l">Erledigte Zahlungen</div><div class="v num">${chf(sum(pd))}</div><div class="sm mut">${pd.length} Positionen</div></div>
+   <div class="card kpi"><div class="l">Kritische Fristen</div><div class="v" style="color:${crit.length?'var(--red)':'inherit'}">${crit.length}</div><div class="sm mut">fällig innert 7 Tagen oder überfällig</div></div>
+   <div class="card kpi"><div class="l">Zu prüfen</div><div class="v">${R.filter(r=>r.status==='zu_pruefen').length}</div><div class="sm mut">Einträge mit unbestätigten Angaben</div></div>
+   <div class="card kpi"><div class="l">Dokumente</div><div class="v">${S.docs.length-miss} / ${S.docs.length}</div><div class="sm mut">${miss} Verweise ohne hochgeladene Datei</div></div>
+  </div>
+  <div class="note">Offene Zahlungen sind nur die erfassten Einzelbeträge. Sie sind kein bestätigter Gesamtschuldenstand; Salden mit Status «Zu prüfen» sind nicht bestätigt.</div>
+  <div class="cols">
+   <div class="card"><h2>Heute fällig und überfällig</h2>${tbl(todayL,'Nichts fällig.')}</div>
+   <div class="card"><h2>Diese Woche</h2>${tbl(weekL,'Keine weiteren Fälligkeiten diese Woche.')}
+     <h3 style="margin-top:12px">Wiederkehrend</h3>${rec.length?rec.map(r=>`<div class="sm" style="padding:5px 0;border-bottom:1px solid var(--line)">${fd(r.next_due)} · ${esc(r.title)} <span class="mut">(${esc(r.responsible||'')})</span></div>`).join(''):'<p class="mut sm">Keine.</p>'}</div>
+   <div class="card"><h2>Priorität 1 ohne Fälligkeit</h2>${tbl(p1,'Keine.')}</div>
+   <div class="card"><h2>Events und Eventabrechnungen</h2>${tbl(ev.slice().sort((a,b)=>(b.due_date||'').localeCompare(a.due_date||'')).slice(0,6),'Keine Events.')}</div>
+   ${admin()?`<div class="card"><h2>Einnahmen und Ausgaben (Bank)</h2>${chart()}</div>`:''}
+   <div class="card"><h2>E-Mail-Posteingang</h2><p class="mut sm">Hostpoint-Postfach noch nicht verbunden. <a href="#email">Details</a></p></div>
+  </div>`);
+}
+function months(){const m={};S.tx.forEach(t=>{if(t.review_state==='duplikat')return;const k=t.booking_date.slice(0,7);m[k]??={in:0,out:0};+t.amount_chf>=0?m[k].in+=+t.amount_chf:m[k].out-=+t.amount_chf});return m}
+function chart(){const m=months(),ks=Object.keys(m).sort().slice(-8);if(!ks.length)return '<p class="mut sm">Noch keine Bankbewegungen importiert.</p>';const mx=Math.max(...ks.map(k=>Math.max(m[k].in,m[k].out)),1);
+  return `<div class="chart">${ks.map(k=>`<div class="m"><div class="bars"><i class="in" style="height:${m[k].in/mx*120}px" title="Einnahmen ${chf(m[k].in)}"></i><i class="out" style="height:${m[k].out/mx*120}px" title="Ausgaben ${chf(m[k].out)}"></i></div><span class="sm mut">${k.slice(5)}.${k.slice(2,4)}</span></div>`).join('')}</div><p class="sm mut"><span style="color:var(--grn)">■</span> Einnahmen <span style="color:var(--red)">■</span> Ausgaben</p>`}
+
+/* ---------- Listen (Aufgaben, Events, Lieferanten, Personal) ---------- */
+const VIEWS={aufgaben:{t:'Aufgaben',c:['aufgabe','dokument'],n:'aufgabe'},events:{t:'Events',c:['event'],n:'event'},lieferanten:{t:'Lieferanten, Verträge und Zahlungen',c:['lieferant','vertrag','zahlung'],n:'lieferant'},personal:{t:'Personal',c:['personal'],n:'personal'}};
+function vList(key){
+  const V=VIEWS[key],f=S.f[key]??={q:'',st:'',pr:'',who:'',done:false};
+  let a=S.records.filter(r=>V.c.includes(r.category)||(key==='personal'&&/lohn|vertr[aä]g|stunden|zwischenverdienst/i.test(r.title)&&r.category!=='vertrag'&&r.category!=='lieferant'));
+  const q=f.q.toLowerCase();
+  a=a.filter(r=>(!q||(r.title+' '+r.notes+' '+(r.responsible||'')).toLowerCase().includes(q))&&(!f.st||r.status===f.st)&&(!f.pr||r.priority===f.pr)&&(!f.who||(r.responsible||'').includes(f.who))&&(f.done||f.st||open(r)));
+  a.sort((x,y)=>(PR[x.priority]||9)-(PR[y.priority]||9)||(x.due_date||'9').localeCompare(y.due_date||'9'));
+  const rec=key==='aufgaben'?`<div class="card" style="margin-top:14px"><h2>Wiederkehrende Aufgaben</h2><div class="tw"><table><tr><th>Nächste Fälligkeit</th><th>Aufgabe</th><th>Rhythmus</th><th>Verantwortlich</th><th></th></tr>${S.recurring.filter(r=>r.active).map(r=>`<tr><td class="num">${fd(r.next_due)}</td><td>${esc(r.title)}<div class="mut sm">${esc(r.notes)}</div></td><td>${r.cadence==='weekly'?'wöchentlich':'monatlich'}</td><td>${esc(r.responsible||'')}</td><td>${admin()?`<button class="btn xs sec" onclick="recDone('${r.id}')">Erledigt, weiter</button>`:''}</td></tr>`).join('')}</table></div></div>`:'';
+  const hint=key==='lieferanten'?`<div class="note">Lieferantenbestellungen und Schuldenrückzahlungen werden getrennt geführt. Eine bezahlte Bestellung reduziert keine ältere Forderung. Beträge mit Status «Zu prüfen» sind nicht bestätigt.</div>`:key==='personal'?`<div class="note">Personalplanung und Stunden laufen weiter in der Stempeluhr (separates Projekt, noch nicht angebunden). Hier stehen Lohn- und Vertragspendenzen.</div>`:'';
+  M(`<h1>${V.t}</h1>${hint}<div class="bar"><input id="fq" placeholder="Suchen…" value="${esc(f.q)}"><select id="fst">${opts(ST,f.st,'Alle Status')}</select><select id="fpr">${opts({hoch:'Priorität 1',mittel:'Priorität 2',niedrig:'Priorität 3'},f.pr,'Alle Prioritäten')}</select><select id="fwho">${opts(Object.fromEntries(PEOPLE.map(p=>[p,p])),f.who,'Alle Personen')}</select>
+  <label class="sm"><input type="checkbox" id="fdone"${f.done?' checked':''}> Erledigte zeigen</label>${canEdit()?`<button class="btn" onclick="editRec(null,'${V.n}')">+ Neu</button>`:''}</div>
+  <div class="card"><div class="tw"><table><tr><th>P</th><th>Titel</th><th>Verantwortlich</th><th>Fällig</th><th class="r">Betrag</th><th>Status</th></tr>
+  ${a.map(r=>{const p=paidFor(r.id),ev=r.category==='event'?evRes(r):null;return `<tr class="click" onclick="editRec('${r.id}')"><td>${pbadge(r.priority)}</td><td><b>${esc(r.title)}</b> <span class="b g">${esc(CAT[r.category])}</span>${r.details?.art==='lieferantenbestellung'?' <span class="b g">Bestellung</span>':r.details?.art==='altforderung'?' <span class="b zu_pruefen">Altforderung</span>':''}<div class="mut sm">${esc(r.notes)}</div>${ev!=null?`<div class="sm">Ergebnis laut erfassten Werten: <b>${chf(ev)}</b></div>`:''}</td><td>${esc(r.responsible||'–')}</td><td class="num">${fd(r.due_date)}</td><td class="num r">${chf(r.amount_chf)}${p&&r.amount_chf!=null?`<div class="sm mut">bezahlt ${chf(p)}<br>Rest ${chf(Math.max(r.amount_chf-p,0))}</div>`:''}</td><td>${sbadge(r.status)}</td></tr>`}).join('')||'<tr><td colspan="6" class="mut">Keine Einträge.</td></tr>'}</table></div></div>${rec}`);
+  const set=()=>{Object.assign(f,{q:$('#fq').value,st:$('#fst').value,pr:$('#fpr').value,who:$('#fwho').value,done:$('#fdone').checked});vList(key);const i=$('#fq');i.focus();i.setSelectionRange(f.q.length,f.q.length)};
+  $('#fq').oninput=set;['#fst','#fpr','#fwho','#fdone'].forEach(s=>$(s).onchange=set);
+}
+function evRes(r){const d=r.details||{},n=k=>+d[k]||0;if(!['ein_ticket','ein_karte','ein_twint','ein_bar','kosten_getraenke','kosten_weitere'].some(k=>d[k]!=null&&d[k]!==''))return null;return n('ein_ticket')+n('ein_karte')+n('ein_twint')+n('ein_bar')-n('kosten_getraenke')-n('kosten_weitere')}
+async function recDone(id){const r=S.recurring.find(x=>x.id===id);let n=r.next_due;if(r.cadence==='weekly')n=addDays(n,7);else{const d=new Date(n+'T12:00');d.setMonth(d.getMonth()+1);n=iso(d)}
+  const {error}=await sb.from('lp_recurring').update({next_due:n}).eq('id',id);error?fail(error):(toast('Nächste Fälligkeit: '+fd(n)),refresh())}
+
+function editRec(id,cat){
+  const r=id?S.records.find(x=>x.id===id):{category:cat||'aufgabe',status:'offen',priority:'mittel',details:{},title:'',notes:'',evidence:''},d=r.details||{},ro=!canEdit()||(S.role==='editor'&&['zahlung','vertrag'].includes(r.category));
+  const docs=id?S.docs.filter(x=>x.record_id===id):[],tx=id?S.tx.filter(t=>t.record_id===id):[];
+  dlg.innerHTML=`<form method="dialog" id="rf"><h2>${id?'Eintrag bearbeiten':'Neuer Eintrag'}</h2><div class="fg">
+  <label class="w">Titel<input name="title" required value="${esc(r.title)}"></label>
+  <label>Kategorie<select name="category">${opts(CAT,r.category)}</select></label>
+  <label>Verantwortlich<input name="responsible" list="ppl" value="${esc(r.responsible||'')}"><datalist id="ppl">${PEOPLE.map(p=>`<option>${p}</option>`).join('')}</datalist></label>
+  <label>Status<select name="status">${opts(ST,r.status)}</select></label>
+  <label>Priorität<select name="priority">${opts({hoch:'1 – hoch',mittel:'2 – mittel',niedrig:'3 – niedrig'},r.priority)}</select></label>
+  <label>Betrag CHF<input name="amount_chf" type="number" step="0.01" value="${r.amount_chf??''}"></label>
+  <label>Fällig am / Eventdatum<input name="due_date" type="date" value="${r.due_date||''}"></label>
+  <label>Erinnerung am<input name="remind_on" type="date" value="${r.remind_on||''}"></label>
+  <label>Nachweis / Quelle<input name="evidence" value="${esc(r.evidence)}"></label>
+  <label class="w">Notizen<textarea name="notes">${esc(r.notes)}</textarea></label>
+  <div class="w" id="evf" style="display:${r.category==='event'?'grid':'none'};grid-template-columns:1fr 1fr;gap:10px">${EVF.map(([k,l,n])=>`<label>${l}<input name="d_${k}" ${n?'type="number" step="0.01"':''} value="${esc(d[k]??'')}"></label>`).join('')}</div>
+  </div>
+  ${docs.length?`<p class="sm"><b>Dokumente:</b> ${docs.map(x=>esc(x.file_name)).join(', ')}</p>`:''}${tx.length?`<p class="sm"><b>Zugeordnete Bankzahlungen:</b> ${tx.map(t=>fd(t.booking_date)+' '+chf(t.amount_chf)).join(' · ')}</p>`:''}
+  ${id?`<p class="sm mut">Zuletzt geändert ${new Date(r.updated_at).toLocaleString('de-CH')}${r.confirmed_on?' · bestätigt am '+fd(r.confirmed_on):''}</p>`:''}
+  <div class="bar" style="justify-content:flex-end"><button class="btn sec" value="x" formnovalidate>Schliessen</button>${ro?'':'<button class="btn" value="s">Speichern</button>'}</div></form>`;
+  const f=$('#rf');f.category.onchange=()=>$('#evf').style.display=f.category.value==='event'?'grid':'none';
+  if(ro)f.querySelectorAll('input,select,textarea').forEach(e=>e.disabled=true);
+  f.onsubmit=async e=>{if(e.submitter?.value!=='s')return;e.preventDefault();const v=Object.fromEntries(new FormData(f));const det={...d};
+    if(v.category==='event')EVF.forEach(([k,,n])=>{const x=v['d_'+k];if(x==='')delete det[k];else det[k]=n?+x:x});
+    const p={title:v.title.trim(),category:v.category,responsible:v.responsible.trim()||null,status:v.status,priority:v.priority,amount_chf:v.amount_chf===''?null:+v.amount_chf,due_date:v.due_date||null,remind_on:v.remind_on||null,evidence:v.evidence,notes:v.notes,details:det};
+    const {error}=id?await sb.from('lp_records').update(p).eq('id',id):await sb.from('lp_records').insert(p);
+    if(error)return fail(error);dlg.close();toast('Gespeichert');refresh()};
+  dlg.showModal();
+}
+
+/* ---------- Finanzen ---------- */
+function vFin(){
+  if(!admin())return M('<h1>Finanzen</h1><div class="note">Bankdaten und Kontostand sind nur für Arben (Admin) sichtbar.</div>');
+  const f=S.f.fin??={from:'',to:'',q:'',rv:'',grp:'m'},b=S.bal[0],q=f.q.toLowerCase();
+  const a=S.tx.filter(t=>(!f.from||t.booking_date>=f.from)&&(!f.to||t.booking_date<=f.to)&&(!f.rv||t.review_state===f.rv)&&(!q||(t.description+' '+t.category).toLowerCase().includes(q)));
+  const live=a.filter(t=>t.review_state!=='duplikat'),inn=live.filter(t=>+t.amount_chf>0).reduce((s,t)=>s+ +t.amount_chf,0),out=live.filter(t=>+t.amount_chf<0).reduce((s,t)=>s- +t.amount_chf,0);
+  const g={};live.forEach(t=>{const k=f.grp==='m'?t.booking_date.slice(0,7):'Woche ab '+fd(monday(t.booking_date));g[k]??={in:0,out:0,n:0,s:t.booking_date};+t.amount_chf>=0?g[k].in+=+t.amount_chf:g[k].out-=+t.amount_chf;g[k].n++});
+  const recs=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category));
+  M(`<h1>Finanzen und Bankabgleich</h1>
+  <div class="grid"><div class="card kpi"><div class="l">Kontostand Valiant</div><div class="v num">${b?chf(b.amount_chf):'–'}</div><div class="sm mut">${b?'Stand '+fd(b.as_of)+' · '+esc(b.source):''}</div><button class="btn xs sec" style="margin-top:8px" onclick="newBal()">Neuen Stand erfassen</button></div>
+  <div class="card kpi"><div class="l">Einnahmen (Filter)</div><div class="v num" style="color:var(--grn)">${chf(inn)}</div></div>
+  <div class="card kpi"><div class="l">Ausgaben (Filter)</div><div class="v num" style="color:var(--red)">${chf(out)}</div></div>
+  <div class="card kpi"><div class="l">Zu prüfen</div><div class="v">${S.tx.filter(t=>t.review_state==='zu_pruefen').length}</div><div class="sm mut">${S.tx.filter(t=>t.review_state==='duplikat').length} als Duplikat markiert</div></div></div>
+  <div class="card"><h2>Bankdaten importieren</h2><p class="sm mut">Valiant-Export als CSV: Bewegungen werden eingelesen, Doppelte übersprungen und alles zuerst als «Zu prüfen» markiert. Bankauszüge als PDF werden im Archiv abgelegt (Kategorie Bankauszüge); die automatische PDF-Auswertung folgt im nächsten Schritt.</p>
+  <div class="bar"><input type="file" id="csv" accept=".csv,text/csv"><button class="btn" onclick="importCsv()">CSV importieren</button><a class="btn sec" style="text-decoration:none;padding:7px 12px;border:1px solid var(--acc);border-radius:8px;color:var(--acc)" href="#dokumente">PDF ins Archiv</a></div></div>
+  <div class="card" style="margin-top:12px"><h2>Bericht</h2><div class="bar"><select id="ggrp"><option value="m"${f.grp==='m'?' selected':''}>pro Monat</option><option value="w"${f.grp==='w'?' selected':''}>pro Woche</option></select><button class="btn sec" onclick="print()">Drucken / PDF</button></div>
+  ${Object.keys(g).length?`<div class="tw"><table><tr><th>Zeitraum</th><th class="r">Einnahmen</th><th class="r">Ausgaben</th><th class="r">Saldo</th><th class="r">Buchungen</th></tr>${Object.entries(g).sort((x,y)=>y[1].s.localeCompare(x[1].s)).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num r">${chf(v.in)}</td><td class="num r">${chf(v.out)}</td><td class="num r"><b>${chf(v.in-v.out)}</b></td><td class="r">${v.n}</td></tr>`).join('')}</table></div>`:'<p class="mut sm">Noch keine Bankbewegungen importiert.</p>'}</div>
+  <div class="card" style="margin-top:12px"><h2>Bankbewegungen</h2><div class="bar"><input type="date" id="gfrom" value="${f.from}"> bis <input type="date" id="gto" value="${f.to}"><input id="gq" placeholder="Suchen…" value="${esc(f.q)}"><select id="grv">${opts(RV,f.rv,'Alle')}</select></div>
+  <div class="tw"><table><tr><th>Datum</th><th>Text</th><th class="r">Betrag</th><th>Kategorie</th><th>Art</th><th>Zuordnung</th><th>Prüfung</th></tr>
+  ${a.slice(0,400).map(t=>`<tr><td class="num">${fd(t.booking_date)}</td><td>${esc(t.description)}<div class="sm mut">${esc(t.notes)}</div></td><td class="num r" style="color:${+t.amount_chf<0?'var(--red)':'var(--grn)'}">${chf(t.amount_chf)}</td>
+   <td><input style="width:130px" value="${esc(t.category)}" onchange="txSet('${t.id}','category',this.value)"></td>
+   <td><select onchange="txSet('${t.id}','kind',this.value)">${opts(KIND,t.kind)}</select></td>
+   <td><select style="max-width:190px" onchange="txLink('${t.id}',this.value)"><option value="">– keine –</option>${recs.map(r=>`<option value="${r.id}"${r.id===t.record_id?' selected':''}>${r.amount_chf!=null&&Math.abs(+r.amount_chf-Math.abs(+t.amount_chf))<0.005?'★ ':''}${esc(r.title)}</option>`).join('')}</select></td>
+   <td><select onchange="txSet('${t.id}','review_state',this.value)">${opts(RV,t.review_state)}</select></td></tr>`).join('')||'<tr><td colspan="7" class="mut">Keine Bewegungen.</td></tr>'}</table></div>
+  <p class="sm mut">★ = Betrag stimmt mit dem Eintrag überein. Zuordnungen und Freigaben erfolgen immer manuell; es werden keine Zahlungen ausgelöst.</p></div>`);
+  const set=()=>{Object.assign(f,{from:$('#gfrom').value,to:$('#gto').value,q:$('#gq').value,rv:$('#grv').value,grp:$('#ggrp').value});vFin()};
+  ['#gfrom','#gto','#grv','#ggrp','#gq'].forEach(s=>$(s).onchange=set);
+}
+async function txSet(id,k,v){const {error}=await sb.from('lp_bank_tx').update({[k]:v}).eq('id',id);if(error)return fail(error);Object.assign(S.tx.find(t=>t.id===id),{[k]:v});toast('Gespeichert')}
+async function txLink(id,rid){const t=S.tx.find(x=>x.id===id),r=S.records.find(x=>x.id===rid);
+  if(r&&r.details?.art==='altforderung'&&t.kind!=='schuldenrueckzahlung'&&!confirm('«'+r.title+'» ist eine ältere Forderung. Diese Buchung ist nicht als Schuldenrückzahlung markiert. Laufende Bestellungen dürfen nicht von der Altforderung abgezogen werden.\n\nTrotzdem zuordnen?'))return vFin();
+  await txSet(id,'record_id',rid||null)}
+async function newBal(){const d=prompt('Datum des Kontostands (TT.MM.JJJJ):',fd(today()));if(!d)return;const m=d.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);if(!m)return toast('Datum ungültig',1);const a=prompt('Kontostand in CHF laut Bank:');if(a==null||a==='')return;const n=num(a);if(isNaN(n))return toast('Betrag ungültig',1);
+  const {error}=await sb.from('lp_bank_balance').insert({as_of:`${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`,amount_chf:n,source:'Manuell erfasst von '+S.name});error?fail(error):(toast('Kontostand gespeichert'),refresh())}
+const num=s=>{s=String(s??'').replace(/[’'`\s]|CHF/g,'');if(/,\d{1,2}$/.test(s))s=s.replace(/\./g,'').replace(',','.');return s===''?NaN:+s};
+const pdate=s=>{s=String(s||'').trim();let m=s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);if(m)return `${m[3].length===2?'20'+m[3]:m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[0]:null};
+function csvRows(txt){const first=txt.split(/\r?\n/).find(l=>/datum/i.test(l))||'';const sep=(first.match(/;/g)||[]).length>=(first.match(/,/g)||[]).length?';':',';const rows=[];let row=[],c='',q=false;
+  for(let i=0;i<txt.length;i++){const ch=txt[i];if(q){if(ch==='"'){if(txt[i+1]==='"'){c+='"';i++}else q=false}else c+=ch}else if(ch==='"')q=true;else if(ch===sep){row.push(c);c=''}else if(ch==='\n'){row.push(c);rows.push(row);row=[];c=''}else if(ch!=='\r')c+=ch}
+  if(c||row.length){row.push(c);rows.push(row)}return rows}
+const RULES=[[/stardrinks/i,'Getränke','lieferantenbestellung'],[/heineken|feldschl/i,'Getränke','lieferantenbestellung'],[/ewb|energie wasser/i,'Energie','normal'],[/axa|versicherung/i,'Versicherung','normal'],[/gastrosocial|ahv|ausgleichskasse/i,'Sozialversicherung','normal'],[/sumup|twint|payrexx|eventfrog|worldline/i,'Karten- und Onlineeinnahmen','normal'],[/lohn|salär|salaer/i,'Lohn','lohn'],[/bdo|miete/i,'Miete','normal'],[/betreibung/i,'Betreibung','normal']];
+async function importCsv(){
+  const file=$('#csv').files[0];if(!file)return toast('Bitte CSV-Datei wählen',1);
+  let txt=await file.text();if(txt.includes('�'))txt=new TextDecoder('windows-1252').decode(await file.arrayBuffer());
+  const rows=csvRows(txt),hi=rows.findIndex(r=>r.some(c=>/datum/i.test(c)));if(hi<0)return toast('Keine Kopfzeile mit «Datum» gefunden',1);
+  const H=rows[hi].map(h=>h.trim().toLowerCase()),col=(...re)=>H.findIndex(h=>re.some(x=>x.test(h)));
+  const cD=col(/buchungsdatum/,/^datum/,/datum/),cV=col(/valuta/),cT=col(/buchungstext|beschreibung|^text|avisierungstext|mitteilung|details/),cB=col(/belastung|soll/),cG=col(/gutschrift|haben/),cA=col(/^betrag/,/betrag/),cS=col(/saldo/);
+  if(cD<0||(cA<0&&cB<0&&cG<0))return toast('Spalten für Datum oder Betrag nicht erkannt. Bitte Datei an Claude senden.',1);
+  const seen={},out=[];
+  rows.slice(hi+1).forEach(r=>{const d=pdate(r[cD]);if(!d)return;let a=cA>=0?num(r[cA]):NaN;if(isNaN(a)){const be=cB>=0?num(r[cB]):NaN,gu=cG>=0?num(r[cG]):NaN;a=!isNaN(gu)&&gu?Math.abs(gu):!isNaN(be)&&be?-Math.abs(be):NaN}if(isNaN(a)||!a)return;
+    const desc=(cT>=0?r[cT]:r.filter((_,i)=>![cD,cV,cB,cG,cA,cS].includes(i)).join(' ')).replace(/\s+/g,' ').trim(),base=d+'|'+a.toFixed(2)+'|'+desc.toLowerCase().slice(0,80),n=seen[base]=(seen[base]||0)+1,rule=RULES.find(x=>x[0].test(desc));
+    const s=cS>=0?num(r[cS]):NaN;
+    out.push({booking_date:d,value_date:cV>=0?pdate(r[cV]):null,description:desc,amount_chf:a,balance_chf:isNaN(s)?null:s,category:rule?rule[1]:'unkategorisiert',kind:rule?rule[2]:'normal',review_state:'zu_pruefen',dedupe_key:base+'|'+n,source_file:file.name,notes:n>1?'Gleiche Buchung mehrfach im Auszug – mögliche Doppelbuchung prüfen.':''})});
+  if(!out.length)return toast('Keine Buchungen in der Datei erkannt',1);
+  if(!confirm(out.length+' Buchungen erkannt ('+fd(out.map(o=>o.booking_date).sort()[0])+' bis '+fd(out.map(o=>o.booking_date).sort().pop())+'). Bereits vorhandene werden übersprungen. Importieren?'))return;
+  const {data,error}=await sb.from('lp_bank_tx').upsert(out,{onConflict:'dedupe_key',ignoreDuplicates:true}).select('id');
+  if(error)return fail(error);toast((data?.length||0)+' neu importiert, '+(out.length-(data?.length||0))+' bereits vorhanden');refresh();
+}
+
+/* ---------- Dokumente ---------- */
+function vDocs(){
+  const f=S.f.doc??={q:'',cat:'',st:'',from:'',to:''},cats=[...new Set([...Object.keys(DOCCAT).slice(0,11),...S.docs.map(d=>d.category)])],q=f.q.toLowerCase();
+  const a=S.docs.filter(d=>(!q||(d.file_name+' '+d.notes).toLowerCase().includes(q))&&(!f.cat||d.category===f.cat)&&(!f.st||(f.st==='da'?!!d.storage_path:f.st==='fehlt'?!d.storage_path:d.state===f.st))&&(!f.from||(d.doc_date||d.modified_on||'')>=f.from)&&(!f.to||(d.doc_date||d.modified_on||'9')<=f.to));
+  const miss=S.docs.filter(d=>!d.storage_path).length;
+  M(`<h1>Dokumentenarchiv</h1>
+  ${miss?`<div class="note red"><b>${miss} von ${S.docs.length} Einträgen sind nur Verweise.</b> Die Originaldatei liegt noch nicht im Archiv. Über «Datei hinzufügen» kann das PDF nachgereicht werden; nicht auffindbare Dateien als «Fehlt» markieren.</div>`:''}
+  ${canEdit()?`<div class="card"><h2>Dokument hochladen</h2><div class="bar"><input type="file" id="up" accept="application/pdf,image/jpeg,image/png,text/csv" multiple><select id="upc">${cats.slice(0,11).map(c=>`<option>${esc(c)}</option>`).join('')}</select><input type="date" id="upd" title="Belegdatum"><button class="btn" onclick="upload()">Hochladen</button></div><p class="sm mut">Privater Speicher, max. 25 MB pro Datei. Bankauszüge, Löhne, Arbeitsverträge, Betreibungen und Buchhaltung sind nur für Admin abrufbar.</p></div>`:''}
+  <div class="bar"><input id="dq" placeholder="Suchen…" value="${esc(f.q)}"><select id="dc"><option value="">Alle Kategorien</option>${cats.map(c=>`<option${c===f.cat?' selected':''}>${esc(c)}</option>`).join('')}</select><select id="ds">${opts({da:'Datei vorhanden',fehlt:'Datei nicht im Archiv',missing:'Als fehlend markiert',duplicate_review:'Duplikat prüfen'},f.st,'Alle')}</select><input type="date" id="df" value="${f.from}"> bis <input type="date" id="dt" value="${f.to}"></div>
+  <div class="card"><div class="tw"><table><tr><th>Datei</th><th>Kategorie</th><th>Datum</th><th>Status</th><th></th></tr>
+  ${a.map(d=>{const i=S.docs.indexOf(d);return `<tr><td>${esc(d.file_name)}<div class="sm mut">${esc(d.notes)}</div></td><td>${esc(d.category)}</td><td class="num">${fd(d.doc_date||d.modified_on)}</td><td>${d.storage_path?'<span class="b erledigt">Im Archiv</span>':d.state==='missing'?'<span class="b zu_pruefen">Fehlt</span>':'<span class="b in_bearbeitung">Nur Verweis</span>'}</td>
+  <td style="white-space:nowrap">${d.storage_path?`<button class="btn xs sec" onclick="docOpen(${i})">Ansehen</button> <button class="btn xs sec" onclick="docOpen(${i},1)">Download</button>`:canEdit()?`<button class="btn xs" onclick="docAttach(${i})">Datei hinzufügen</button> ${d.state!=='missing'?`<button class="btn xs sec" onclick="docMissing(${i})">Fehlt</button>`:''}`:''}</td></tr>`}).join('')||'<tr><td colspan="5" class="mut">Keine Dokumente.</td></tr>'}</table></div></div><input type="file" id="att" hidden accept="application/pdf,image/jpeg,image/png">`);
+  const set=()=>{Object.assign(f,{q:$('#dq').value,cat:$('#dc').value,st:$('#ds').value,from:$('#df').value,to:$('#dt').value});vDocs()};
+  ['#dq','#dc','#ds','#df','#dt'].forEach(s=>$(s).onchange=set);
+}
+const safe=n=>n.normalize('NFKD').replace(/[^\w.\-]+/g,'_').slice(-90);
+const spath=(cat,name)=>(DOCCAT[cat]||'sonstiges')+'/'+crypto.randomUUID().slice(0,8)+'-'+safe(name);
+async function upload(){
+  const fs=[...$('#up').files],cat=$('#upc').value,dd=$('#upd').value||null;if(!fs.length)return toast('Bitte Datei wählen',1);let ok=0;
+  for(const f of fs){const p=spath(cat,f.name);const u=await sb.storage.from('lp-dokumente').upload(p,f,{contentType:f.type});if(u.error){fail(u.error);continue}
+    const {error}=await sb.from('lp_documents').insert({library_file_id:'upload_'+crypto.randomUUID(),file_name:f.name,category:cat,state:'in_supabase',storage_path:p,doc_date:dd,modified_on:today(),size_bytes:f.size});error?fail(error):ok++}
+  if(ok){toast(ok+' Datei(en) hochgeladen');refresh()}
+}
+function docAttach(i){const d=S.docs[i],inp=$('#att');inp.onchange=async()=>{const f=inp.files[0];if(!f)return;const p=spath(d.category,f.name);const u=await sb.storage.from('lp-dokumente').upload(p,f,{contentType:f.type});if(u.error)return fail(u.error);
+  const {error}=await sb.from('lp_documents').update({storage_path:p,state:'in_supabase',size_bytes:f.size}).eq('library_file_id',d.library_file_id);error?fail(error):(toast('Datei hinterlegt'),refresh())};inp.click()}
+async function docMissing(i){const d=S.docs[i];if(!confirm('«'+d.file_name+'» als fehlend markieren?'))return;const {error}=await sb.from('lp_documents').update({state:'missing'}).eq('library_file_id',d.library_file_id);error?fail(error):refresh()}
+async function docOpen(i,dl){const d=S.docs[i],w=dl?null:window.open('','_blank');const {data,error}=await sb.storage.from('lp-dokumente').createSignedUrl(d.storage_path,300,dl?{download:d.file_name}:undefined);
+  if(error){w&&w.close();return toast('Kein Zugriff auf diese Datei: '+error.message,1)}dl?location.href=data.signedUrl:w.location=data.signedUrl}
+
+/* ---------- Kalender ---------- */
+function vCal(){
+  const ws=S.f.ws??=monday(today()),t=today(),dn=['Mo','Di','Mi','Do','Fr','Sa','So'];
+  const up=S.records.filter(r=>open(r)&&r.due_date&&r.due_date>addDays(ws,6)).slice(0,15);
+  M(`<h1>Kalender</h1><div class="bar"><button class="btn sec" onclick="S.f.ws=addDays(S.f.ws,-7);vCal()">‹ Woche zurück</button><button class="btn sec" onclick="S.f.ws=monday(today());vCal()">Heute</button><button class="btn sec" onclick="S.f.ws=addDays(S.f.ws,7);vCal()">Woche vor ›</button><b>${fd(ws)} – ${fd(addDays(ws,6))}</b></div>
+  <div class="week">${dn.map((n,i)=>{const d=addDays(ws,i);return `<div class="day${d===t?' today':''}"><div class="d">${n} ${fd(d).slice(0,6)}</div>${S.records.filter(r=>r.due_date===d||r.remind_on===d).map(r=>`<div class="ev" onclick="editRec('${r.id}')">${r.remind_on===d&&r.due_date!==d?'⏰ ':''}${esc(r.title)}</div>`).join('')}${S.recurring.filter(r=>r.active&&r.next_due===d).map(r=>`<div class="ev rec" onclick="location.hash='aufgaben'">↻ ${esc(r.title)}</div>`).join('')}</div>`}).join('')}</div>
+  <div class="card" style="margin-top:14px"><h2>Danach fällig</h2>${up.length?up.map(r=>`<div class="sm" style="padding:5px 0;border-bottom:1px solid var(--line);cursor:pointer" onclick="editRec('${r.id}')">${fd(r.due_date)} · ${esc(r.title)} <span class="mut">(${esc(r.responsible||'–')})</span></div>`).join(''):'<p class="mut sm">Keine späteren Fälligkeiten erfasst.</p>'}</div>`);
+}
+
+/* ---------- E-Mail / Protokoll ---------- */
+function vMail(){M(`<h1>E-Mail-Posteingang</h1><div class="note">Das Hostpoint-Postfach ist noch nicht verbunden. Die Anbindung läuft serverseitig; das Passwort wird nur als geschütztes Secret in Supabase hinterlegt und nie in dieser Oberfläche gespeichert.</div>
+  <div class="card"><h2>Geplanter Umfang</h2><ul><li>Eingehende E-Mails anzeigen, Rechnungen und PDF-Anhänge erkennen</li><li>Anhänge ins private Archiv übernehmen</li><li>Betrag, Absender und Fälligkeit als Entwurf «Zu prüfen» erfassen</li><li>Antwortentwürfe; Versand nur nach ausdrücklicher Freigabe</li><li>Keine automatische Zahlungsfreigabe</li></ul></div>`)}
+function vLog(){
+  const lab={insert:'Neu',update:'Geändert',delete:'Gelöscht'},tn={lp_records:'Eintrag',lp_recurring:'Wiederkehrend',lp_documents:'Dokument',lp_bank_tx:'Bankbuchung',lp_bank_balance:'Kontostand'};
+  M(`<h1>Änderungsprotokoll</h1><p class="mut">Jede Änderung wird automatisch mit Zeitpunkt und altem/neuem Wert gespeichert. Angezeigt werden die letzten 150.</p><div class="card"><div class="tw"><table><tr><th>Zeit</th><th>Bereich</th><th>Aktion</th><th>Betroffen</th><th>Geänderte Felder</th></tr>
+  ${S.changes.map(c=>{const a=c.after_value||{},b=c.before_value||{},ch=c.action==='update'?Object.keys(a).filter(k=>k!=='updated_at'&&JSON.stringify(a[k])!==JSON.stringify(b[k])):[];
+   return `<tr><td class="num sm">${new Date(c.changed_at).toLocaleString('de-CH')}</td><td>${esc(tn[c.table_name]||c.table_name||'')}</td><td>${esc(lab[c.action]||c.action)}</td><td>${esc(a.title||b.title||a.file_name||b.file_name||a.description||b.description||'')}</td><td class="sm">${ch.map(k=>`${esc(k)}: ${esc(JSON.stringify(b[k])).slice(0,60)} → ${esc(JSON.stringify(a[k])).slice(0,60)}`).join('<br>')}</td></tr>`}).join('')||'<tr><td colspan="5" class="mut">Noch keine Änderungen.</td></tr>'}</table></div></div>`);
+}
+boot();
+</script>
+</body>
+</html>

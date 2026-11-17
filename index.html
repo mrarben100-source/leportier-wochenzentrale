@@ -67,7 +67,7 @@ input,select,textarea{font-size:16px}button.btn{min-height:40px}button.btn.xs{mi
 dialog{width:100vw;max-width:100vw;max-height:100dvh;height:100dvh;margin:0;border-radius:0}dialog form{padding:calc(14px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom))}
 .login{margin-top:calc(6vh + env(safe-area-inset-top))}#toast{bottom:calc(18px + env(safe-area-inset-bottom))}}
 /* Handy: breite Tabellen als Karten (Beschriftung kommt aus der Kopfzeile, siehe cards()) */
-@media(max-width:700px){
+@media(max-width:860px){
 .tw{overflow-x:visible}.week{grid-template-columns:1fr;overflow-x:visible}.day{min-height:0}
 table.cards,table.cards tbody{display:block;width:100%}
 table.cards tr.hd{display:none}
@@ -103,7 +103,7 @@ const ST={offen:'Offen',in_bearbeitung:'In Bearbeitung',wartet:'Wartet',erledigt
 const PR={hoch:'1',mittel:'2',niedrig:'3'};
 const CAT={aufgabe:'Aufgabe',zahlung:'Zahlung',event:'Event',lieferant:'Lieferant',dokument:'Dokument',personal:'Personal',vertrag:'Vertrag'};
 const PEOPLE=['Arben','Dennis','Levent'];
-const DOCCAT={'Lieferantenrechnungen':'lieferantenrechnungen','Bankauszüge':'vertraulich/bankauszuege','Zahlungsbestätigungen':'zahlungsbestaetigungen','Eventabrechnungen':'eventabrechnungen','Arbeitsverträge':'vertraulich/arbeitsvertraege','Lohnabrechnungen':'vertraulich/lohnabrechnungen','Versicherungen':'versicherungen','Mietvertrag':'mietvertrag','Betreibungen':'vertraulich/betreibungen','Buchhaltung':'vertraulich/buchhaltung','Sponsoringverträge':'sponsoringvertraege','Umsatzberichte':'umsatzberichte','personal':'vertraulich/personal','finanzen':'vertraulich/finanzen','buchhaltung':'vertraulich/buchhaltung','event':'eventabrechnungen','lieferant/vertrag':'lieferant-vertrag'};
+const DOCCAT={'Finanzen':'vertraulich/finanzen','Lieferantenrechnungen':'lieferantenrechnungen','Bankauszüge':'vertraulich/bankauszuege','Zahlungsbestätigungen':'zahlungsbestaetigungen','Eventabrechnungen':'eventabrechnungen','Arbeitsverträge':'vertraulich/arbeitsvertraege','Lohnabrechnungen':'vertraulich/lohnabrechnungen','Versicherungen':'versicherungen','Mietvertrag':'mietvertrag','Betreibungen':'vertraulich/betreibungen','Buchhaltung':'vertraulich/buchhaltung','Sponsoringverträge':'sponsoringvertraege','Umsatzberichte':'umsatzberichte','Personal':'vertraulich/personal','personal':'vertraulich/personal','finanzen':'vertraulich/finanzen','buchhaltung':'vertraulich/buchhaltung','event':'eventabrechnungen','lieferant/vertrag':'lieferant-vertrag'};
 const KIND={normal:'Normal',lieferantenbestellung:'Lieferantenbestellung',schuldenrueckzahlung:'Schuldenrückzahlung',lohn:'Lohn',event:'Event',sonstiges:'Sonstiges'};
 const RV={ok:'OK',zu_pruefen:'Zu prüfen',duplikat:'Duplikat'};
 const EVF=[['veranstalter','Veranstalter'],['verantwortlich','Verantwortliche'],['dj','DJ'],['security','Security'],['bar','Bar'],['garderobe','Garderobe'],['personalstunden','Personalstunden','n'],['ein_ticket','Ticketeinnahmen CHF','n'],['ein_karte','Karteneinnahmen CHF','n'],['ein_twint','TWINT-Einnahmen CHF','n'],['ein_bar','Bareinnahmen CHF','n'],['kosten_getraenke','Getränkekosten CHF','n'],['kosten_weitere','Weitere Ausgaben CHF','n'],['kosten_personal','Personalkosten CHF (Stempeluhr)','n'],['fehlende_belege','Fehlende Belege'],['freigabe','Zahlungsfreigabe']];
@@ -465,6 +465,7 @@ function vFin(){
   <div class="bar"><input type="file" id="csv" accept=".xlsx,.xls,.csv,.pdf,text/csv,application/pdf"><button class="btn" onclick="importCsv()">Datei hochladen</button><a class="btn sec" style="text-decoration:none;padding:7px 12px;border:1px solid var(--acc);border-radius:8px;color:var(--acc)" href="#dokumente">PDF ins Archiv</a></div></div>
   <div class="card" style="margin-top:12px"><h2>Bericht</h2><div class="bar"><select id="ggrp"><option value="m"${f.grp==='m'?' selected':''}>pro Monat</option><option value="w"${f.grp==='w'?' selected':''}>pro Woche</option></select><button class="btn sec" onclick="print()">Drucken / PDF</button></div>
   ${Object.keys(g).length?`<div class="tw"><table><tr><th>Zeitraum</th><th class="r">Einnahmen</th><th class="r">Ausgaben</th><th class="r">Saldo</th><th class="r">Buchungen</th></tr>${Object.entries(g).sort((x,y)=>y[1].s.localeCompare(x[1].s)).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num r">${chf(v.in)}</td><td class="num r">${chf(v.out)}</td><td class="num r"><b>${chf(v.in-v.out)}</b></td><td class="r">${v.n}</td></tr>`).join('')}</table></div>`:'<p class="mut sm">Noch keine Bankbewegungen importiert.</p>'}</div>
+  ${persBox()}
   <div class="card" style="margin-top:12px"><h2>Bankbewegungen</h2><p class="sm mut">Summe aller importierten Buchungen: GmbH ${chf(sal('GmbH'))}, AG (PMH Prime Management +) ${chf(sal('AG'))}. ${nint} Buchungen sind als interne Transfers zwischen AG und GmbH markiert und zählen nicht zu Einnahmen und Ausgaben.</p><div class="bar"><select id="gk"><option value="GmbH"${f.konto==='GmbH'?' selected':''}>Konto GmbH</option><option value="AG"${f.konto==='AG'?' selected':''}>Konto AG</option><option value=""${f.konto===''?' selected':''}>Beide Konten</option></select><input type="date" id="gfrom" value="${f.from}"> bis <input type="date" id="gto" value="${f.to}"><input id="gq" placeholder="Suchen…" value="${esc(f.q)}"><select id="grv">${opts(RV,f.rv,'Alle ohne Duplikate')}</select></div>
   <div class="tw"><table><tr><th>Datum</th><th>Text</th><th class="r">Betrag</th><th>Kategorie</th><th>Art</th><th>Zuordnung</th><th>Prüfung</th></tr>
   ${a.slice(0,400).map(t=>`<tr><td class="num">${fd(t.booking_date)}</td><td>${f.konto?'':'<span class="b g">'+konto(t)+'</span> '}${intern(t)?'<span class="b wartet">intern</span> ':''}${esc(t.description)}<div class="sm mut">${esc(t.notes)}</div></td><td class="num r" style="color:${+t.amount_chf<0?'var(--red)':'var(--grn)'}">${chf(t.amount_chf)}</td>
@@ -475,6 +476,30 @@ function vFin(){
   <p class="sm mut">★ = Betrag stimmt mit dem Eintrag überein. Zuordnungen und Freigaben erfolgen immer manuell; es werden keine Zahlungen ausgelöst.</p></div>`);
   const set=()=>{Object.assign(f,{jahr:$('#gj').value,konto:$('#gk').value,from:$('#gfrom').value,to:$('#gto').value,q:$('#gq').value,rv:$('#grv').value,grp:$('#ggrp').value});vFin()};
   ['#gfrom','#gto','#grv','#ggrp','#gq','#gk','#gj'].forEach(s=>$(s).onchange=set);
+}
+/* Zahlungen an Personen gemeinsam einordnen: pro Empfänger einmal bestätigen */
+const PERSK=[['Lohn','Lohn','lohn'],['DJ / Künstler','DJ / Künstler','event'],['Dienstleistung','Dienstleistung','normal'],['Gesellschafter / privat','Gesellschafter / privat','normal']];
+function persGroups(){
+  const G={};S.tx.filter(t=>t.review_state==='zu_pruefen'&&+t.amount_chf<0&&!/^(zahlung|auszahlung) - /i.test(t.description||'')&&!/^übertrag$/i.test((t.description||'').trim())).forEach(t=>{
+    const n=(payee(t)||(t.description||'').split(',')[0]).trim();if(!n)return;(G[n]??=[]).push(t)});
+  return Object.entries(G).sort((a,b)=>a[1].reduce((s,t)=>s+ +t.amount_chf,0)-b[1].reduce((s,t)=>s+ +t.amount_chf,0));
+}
+function persBox(){
+  const g=persGroups();if(!g.length)return '';
+  const f=S.f.pers??={all:false},show=f.all?g:g.slice(0,15);
+  return `<div class="card" style="margin-top:12px"><h2>Zahlungen an Personen zuordnen (${g.length} Empfänger)</h2><p class="sm mut">Ein Klick ordnet alle offenen Zahlungen an diese Person zu und setzt sie auf «OK». Es wird nichts bezahlt.</p>
+  <div class="tw"><table><tr><th>Empfänger</th><th class="r">Zahlungen</th><th class="r">Total</th><th>Zeitraum</th><th>Zuordnen als</th></tr>
+  ${show.map(([n,ts],i)=>`<tr><td>${esc(n)}</td><td class="r">${ts.length}</td><td class="num r">${chf(-ts.reduce((s,t)=>s+ +t.amount_chf,0))}</td><td class="num sm">${fd(ts.map(t=>t.booking_date).sort()[0])} – ${fd(ts.map(t=>t.booking_date).sort().pop())}</td>
+   <td class="act"><div class="bar" style="margin:0">${PERSK.map(([l],k)=>`<button class="btn xs sec" onclick="persSet(${i},${k})">${l}</button>`).join('')}</div></td></tr>`).join('')}</table></div>
+  ${g.length>15?`<button class="btn sec" onclick="S.f.pers.all=!S.f.pers.all;vFin()">${f.all?'Weniger anzeigen':'Alle '+g.length+' anzeigen'}</button>`:''}</div>`;
+}
+async function persSet(i,k){
+  const [n,ts]=persGroups()[i],[l,cat,kind]=PERSK[k];
+  if(!confirm(ts.length+' Zahlung(en) an «'+n+'» über total '+chf(-ts.reduce((s,t)=>s+ +t.amount_chf,0))+' als «'+l+'» einordnen?'))return;
+  const ok=true,note=' Zugeordnet als «'+l+'» von '+S.name+' am '+fd(today())+'.';
+  for(const t of ts){const v={category:cat,kind,notes:((t.notes||'')+note).trim()};if(ok)v.review_state='ok';
+    const {error}=await sb.from('lp_bank_tx').update(v).eq('id',t.id);if(error)return fail(error);Object.assign(t,v)}
+  toast(ts.length+' Zahlung(en) an '+n+' als «'+l+'» eingeordnet');vFin();
 }
 async function txSet(id,k,v){const {error}=await sb.from('lp_bank_tx').update({[k]:v}).eq('id',id);if(error)return fail(error);Object.assign(S.tx.find(t=>t.id===id),{[k]:v});toast('Gespeichert')}
 async function txLink(id,rid){const t=S.tx.find(x=>x.id===id),r=S.records.find(x=>x.id===rid);
@@ -614,12 +639,12 @@ async function importPdf(file){
 
 /* ---------- Dokumente ---------- */
 function vDocs(){
-  const f=S.f.doc??={q:'',cat:'',st:'',from:'',to:''},cats=[...new Set([...Object.keys(DOCCAT).slice(0,12),...S.docs.map(d=>d.category)])],q=f.q.toLowerCase();
+  const f=S.f.doc??={q:'',cat:'',st:'',from:'',to:''},cats=[...new Set([...Object.keys(DOCCAT).slice(0,15),...S.docs.map(d=>d.category)])],q=f.q.toLowerCase();
   const a=S.docs.filter(d=>(!q||(d.file_name+' '+d.notes).toLowerCase().includes(q))&&(!f.cat||d.category===f.cat)&&(!f.st||(f.st==='da'?!!d.storage_path:f.st==='fehlt'?!d.storage_path:d.state===f.st))&&(!f.from||(d.doc_date||d.modified_on||'')>=f.from)&&(!f.to||(d.doc_date||d.modified_on||'9')<=f.to));
   const miss=S.docs.filter(d=>!d.storage_path).length;
   M(`<h1>Dokumentenarchiv</h1>
   ${miss?`<div class="note red"><b>${miss} von ${S.docs.length} Einträgen sind nur Verweise.</b> Die Originaldatei liegt noch nicht im Archiv. Über «Datei hinzufügen» kann das PDF nachgereicht werden; nicht auffindbare Dateien als «Fehlt» markieren.</div>`:''}
-  ${canEdit()?`<div class="card"><h2>Dokument hochladen</h2><div class="bar"><input type="file" id="up" accept=".pdf,.jpg,.jpeg,.png,.csv,.xlsx,.xls,.zip" multiple><select id="upc">${cats.slice(0,12).map(c=>`<option>${esc(c)}</option>`).join('')}</select><input type="date" id="upd" title="Belegdatum"><button class="btn" onclick="upload()">Hochladen</button>${admin()?'<button class="btn sec" onclick="docDedupe()">Dubletten bereinigen</button><button class="btn sec" onclick="textPending()">Inhalte für den Abgleich bereitstellen ('+S.docs.filter(d=>d.storage_path&&!d.content_at).length+' offen)</button>':''}</div><p class="sm mut">Mehrere Dateien oder eine ZIP-Datei auf einmal möglich; ZIP-Dateien werden automatisch entpackt. Hat eine Datei exakt denselben Namen wie ein bestehender Verweis, wird sie dort hinterlegt; die gewählte Kategorie gilt nur für Dateien ohne Verweis. Erlaubt sind PDF, JPG, PNG, CSV und Excel. Privater Speicher, max. 25 MB pro Datei. Bankauszüge, Löhne, Arbeitsverträge, Betreibungen und Buchhaltung sind nur für Admin abrufbar.</p></div>`:''}
+  ${canEdit()?`<div class="card"><h2>Dokument hochladen</h2><div class="bar"><input type="file" id="up" accept=".pdf,.jpg,.jpeg,.png,.csv,.xlsx,.xls,.zip" multiple><select id="upc">${cats.slice(0,15).map(c=>`<option>${esc(c)}</option>`).join('')}</select><input type="date" id="upd" title="Belegdatum"><button class="btn" onclick="upload()">Hochladen</button>${admin()?'<button class="btn sec" onclick="docDedupe()">Dubletten bereinigen</button><button class="btn sec" onclick="textPending()">Inhalte für den Abgleich bereitstellen ('+S.docs.filter(d=>d.storage_path&&!d.content_at).length+' offen)</button>':''}</div><p class="sm mut">Mehrere Dateien oder eine ZIP-Datei auf einmal möglich; ZIP-Dateien werden automatisch entpackt. Hat eine Datei exakt denselben Namen wie ein bestehender Verweis, wird sie dort hinterlegt; die gewählte Kategorie gilt nur für Dateien ohne Verweis. Erlaubt sind PDF, JPG, PNG, CSV und Excel. Privater Speicher, max. 25 MB pro Datei. Bankauszüge, Löhne, Arbeitsverträge, Betreibungen und Buchhaltung sind nur für Admin abrufbar.</p></div>`:''}
   <div class="bar"><input id="dq" placeholder="Suchen…" value="${esc(f.q)}"><select id="dc"><option value="">Alle Kategorien</option>${cats.map(c=>`<option${c===f.cat?' selected':''}>${esc(c)}</option>`).join('')}</select><select id="ds">${opts({da:'Datei vorhanden',fehlt:'Datei nicht im Archiv',missing:'Als fehlend markiert',duplicate_review:'Duplikat prüfen'},f.st,'Alle')}</select><input type="date" id="df" value="${f.from}"> bis <input type="date" id="dt" value="${f.to}"></div>
   <div class="card"><div class="tw"><table><tr><th>Datei</th><th>Kategorie</th><th>Datum</th><th>Status</th><th></th></tr>
   ${a.map(d=>{const i=S.docs.indexOf(d);return `<tr><td>${esc(d.file_name)}<div class="sm mut">${esc(d.notes)}</div></td><td>${esc(d.category)}</td><td class="num">${fd(d.doc_date||d.modified_on)}</td><td>${d.storage_path?'<span class="b erledigt">Im Archiv</span>':d.state==='missing'?'<span class="b zu_pruefen">Fehlt</span>':'<span class="b in_bearbeitung">Nur Verweis</span>'}</td>

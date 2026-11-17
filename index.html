@@ -408,15 +408,16 @@ function ordConfirm(){if(!confirm('Alle Preise als bestätigt markieren?\n\nNur 
 /* ---------- Finanzen ---------- */
 function vFin(){
   if(!admin())return M('<h1>Finanzen</h1><div class="note">Bankdaten und Kontostand sind nur für Arben (Admin) sichtbar.</div>');
-  const f=S.f.fin??={from:'',to:'',q:'',rv:'',grp:'m',konto:'GmbH'},b=S.bal[0],q=f.q.toLowerCase(),sal=k=>S.tx.filter(t=>konto(t)===k&&t.review_state!=='duplikat').reduce((s,t)=>s+ +t.amount_chf,0),nint=S.tx.filter(intern).length;
-  const a=S.tx.filter(t=>(!f.konto||konto(t)===f.konto)&&(!f.from||t.booking_date>=f.from)&&(!f.to||t.booking_date<=f.to)&&(f.rv?t.review_state===f.rv:t.review_state!=='duplikat')&&(!q||(t.description+' '+t.category).toLowerCase().includes(q)));
+  const f=S.f.fin??={from:'',to:'',q:'',rv:'',grp:'m',konto:'GmbH',jahr:''},b=S.bal[0],yrs=[...new Set(S.tx.map(t=>t.booking_date.slice(0,4)))].sort().reverse(),q=f.q.toLowerCase(),sal=k=>S.tx.filter(t=>konto(t)===k&&t.review_state!=='duplikat').reduce((s,t)=>s+ +t.amount_chf,0),nint=S.tx.filter(intern).length;
+  const a=S.tx.filter(t=>(!f.konto||konto(t)===f.konto)&&(!f.jahr||t.booking_date.startsWith(f.jahr))&&(!f.from||t.booking_date>=f.from)&&(!f.to||t.booking_date<=f.to)&&(f.rv?t.review_state===f.rv:t.review_state!=='duplikat')&&(!q||(t.description+' '+t.category).toLowerCase().includes(q)));
   const live=a.filter(t=>t.review_state!=='duplikat'&&!intern(t)),inn=live.filter(t=>+t.amount_chf>0).reduce((s,t)=>s+ +t.amount_chf,0),out=live.filter(t=>+t.amount_chf<0).reduce((s,t)=>s- +t.amount_chf,0);
   const g={};live.forEach(t=>{const k=f.grp==='m'?t.booking_date.slice(0,7):'Woche ab '+fd(monday(t.booking_date));g[k]??={in:0,out:0,n:0,s:t.booking_date};+t.amount_chf>=0?g[k].in+=+t.amount_chf:g[k].out-=+t.amount_chf;g[k].n++});
   const recs=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category));
   M(`<h1>Finanzen und Bankabgleich</h1>
+  <div class="bar"><b>Jahr:</b> <select id="gj"><option value="">Alle Jahre</option>${yrs.map(y=>`<option${f.jahr===y?' selected':''}>${y}</option>`).join('')}</select></div>
   <div class="grid"><div class="card kpi"><div class="l">Kontostand Valiant</div><div class="v num">${b?chf(b.amount_chf):'–'}</div><div class="sm mut">${b?'Stand '+fd(b.as_of)+' · '+esc(b.source):''}</div><button class="btn xs sec" style="margin-top:8px" onclick="newBal()">Neuen Stand erfassen</button></div>
-  <div class="card kpi"><div class="l">Einnahmen (Filter, ohne interne)</div><div class="v num" style="color:var(--grn)">${chf(inn)}</div></div>
-  <div class="card kpi"><div class="l">Ausgaben (Filter, ohne interne)</div><div class="v num" style="color:var(--red)">${chf(out)}</div></div>
+  <div class="card kpi"><div class="l">Einnahmen ${f.jahr||'gesamt'} (ohne interne)</div><div class="v num" style="color:var(--grn)">${chf(inn)}</div></div>
+  <div class="card kpi"><div class="l">Ausgaben ${f.jahr||'gesamt'} (ohne interne)</div><div class="v num" style="color:var(--red)">${chf(out)}</div></div>
   <div class="card kpi"><div class="l">Zu prüfen</div><div class="v">${S.tx.filter(t=>t.review_state==='zu_pruefen').length}</div><div class="sm mut">${S.tx.filter(t=>t.review_state==='duplikat').length} als Duplikat markiert</div></div></div>
   <div class="card"><h2>Bankdaten importieren</h2><p class="sm mut">Valiant-Kontoauszug als PDF, Excel (.xlsx) oder CSV: Die Buchungen werden ausgelesen, bereits vorhandene übersprungen und alles zuerst als «Zu prüfen» markiert. Ein PDF wird zusätzlich im Archiv unter «Bankauszüge» abgelegt.</p>
   <div class="bar"><input type="file" id="csv" accept=".xlsx,.xls,.csv,.pdf,text/csv,application/pdf"><button class="btn" onclick="importCsv()">Datei hochladen</button><a class="btn sec" style="text-decoration:none;padding:7px 12px;border:1px solid var(--acc);border-radius:8px;color:var(--acc)" href="#dokumente">PDF ins Archiv</a></div></div>
@@ -430,8 +431,8 @@ function vFin(){
    <td><select style="max-width:190px" onchange="txLink('${t.id}',this.value)"><option value="">– keine –</option>${recs.map(r=>`<option value="${r.id}"${r.id===t.record_id?' selected':''}>${r.amount_chf!=null&&Math.abs(+r.amount_chf-Math.abs(+t.amount_chf))<0.005?'★ ':''}${esc(r.title)}</option>`).join('')}</select></td>
    <td><select onchange="txSet('${t.id}','review_state',this.value)">${opts(RV,t.review_state)}</select></td></tr>`).join('')||'<tr><td colspan="7" class="mut">Keine Bewegungen.</td></tr>'}</table></div>
   <p class="sm mut">★ = Betrag stimmt mit dem Eintrag überein. Zuordnungen und Freigaben erfolgen immer manuell; es werden keine Zahlungen ausgelöst.</p></div>`);
-  const set=()=>{Object.assign(f,{konto:$('#gk').value,from:$('#gfrom').value,to:$('#gto').value,q:$('#gq').value,rv:$('#grv').value,grp:$('#ggrp').value});vFin()};
-  ['#gfrom','#gto','#grv','#ggrp','#gq','#gk'].forEach(s=>$(s).onchange=set);
+  const set=()=>{Object.assign(f,{jahr:$('#gj').value,konto:$('#gk').value,from:$('#gfrom').value,to:$('#gto').value,q:$('#gq').value,rv:$('#grv').value,grp:$('#ggrp').value});vFin()};
+  ['#gfrom','#gto','#grv','#ggrp','#gq','#gk','#gj'].forEach(s=>$(s).onchange=set);
 }
 async function txSet(id,k,v){const {error}=await sb.from('lp_bank_tx').update({[k]:v}).eq('id',id);if(error)return fail(error);Object.assign(S.tx.find(t=>t.id===id),{[k]:v});toast('Gespeichert')}
 async function txLink(id,rid){const t=S.tx.find(x=>x.id===id),r=S.records.find(x=>x.id===rid);

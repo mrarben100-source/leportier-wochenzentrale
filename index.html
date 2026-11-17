@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icon-32.png">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -81,6 +81,20 @@ table.cards td.t0{order:-1;display:block;text-align:left;font-weight:600;padding
 table.cards td.t0::before{display:none}
 table.cards td.act{justify-content:flex-end;flex-wrap:wrap}
 table.cards td.wide{display:block;text-align:left}table.cards td.wide::before{display:block;margin-bottom:2px}
+}
+/* iPhone: nichts darf seitlich herausragen, kein Auto-/Doppeltipp-Zoom */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}body{touch-action:manipulation}#app{overflow-x:hidden;overflow-x:clip;max-width:100vw}
+@media(max-width:860px){
+main{max-width:100vw;box-sizing:border-box}
+.grid>*,.cols>*{min-width:0}.chart{gap:4px;overflow-x:auto}.chart .m{min-width:0}.chart .bars i{width:9px}
+table.ov{table-layout:fixed;width:100%}table.ov td{word-break:break-word;overflow-wrap:anywhere}table.ov td:nth-child(1){width:30px;padding-right:0}table.ov td:nth-child(3){width:92px}table.ov td:nth-child(4){width:74px}.cols{grid-template-columns:minmax(0,1fr)}.kpi .v,.kpi div{overflow-wrap:anywhere;word-break:break-word}
+table.cards td,table.cards td *{word-break:break-word;overflow-wrap:anywhere}
+table.cards .num,table.cards td.num{white-space:normal}
+table.cards td>*{max-width:100%}
+table.cards select,table.cards input,table.cards button,.bar>select,.bar>input{max-width:100%;box-sizing:border-box}
+table.cards td.act .bar,table.cards td .bar{flex-wrap:wrap;justify-content:flex-end}
+table.cards td.act select{flex:1 1 100%;max-width:100%!important}
+.b{white-space:normal}
 }
 @media print{nav,.bar,button{display:none!important}main{padding:0}}
 </style>
@@ -176,7 +190,7 @@ function route(){
   const k=(location.hash.slice(1)||'uebersicht');document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.k===k));
   ({uebersicht:vHome,aufgaben:()=>vList('aufgaben'),rechnungen:vBills,finanzen:vFin,events:()=>vList('events'),lieferanten:()=>vList('lieferanten'),bestellungen:vOrders,personal:()=>vList('personal'),dokumente:vDocs,kalender:vCal,email:vMail,bexio:vBexio,protokoll:vLog}[k]||vHome)();
 }
-const M=h=>$('#main').innerHTML=h;
+const M=h=>{const m=$('#main');m.innerHTML=h;try{cards(m)}catch(e){}return h};
 /* Neueste Version laden, ohne die Home-Bildschirm-App zu löschen: Zwischenspeicher leeren und mit neuer Adresse neu laden */
 async function appUpdate(){
   try{if('caches' in window)for(const k of await caches.keys())await caches.delete(k);if(navigator.serviceWorker)for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister()}catch(e){}
@@ -230,7 +244,7 @@ function vHome(){
   const p1=R.filter(r=>open(r)&&r.priority==='hoch'&&!r.due_date);
   const b=S.bal[0],ev=R.filter(r=>r.category==='event'),miss=S.docs.filter(d=>!d.storage_path).length;
   const row=r=>`<tr class="click" onclick="editRec('${r.id}')"><td>${pbadge(r.priority)}</td><td>${esc(r.title)}<div class="mut sm">${esc(CAT[r.category])} · ${esc(r.responsible||'nicht zugewiesen')}</div></td><td class="num r">${r.amount_chf!=null?chf(r.amount_chf):''}<div class="sm ${r.due_date&&r.due_date<t?'':'mut'}" style="${r.due_date&&r.due_date<t?'color:var(--red)':''}">${r.due_date?fd(r.due_date):''}</div></td><td>${sbadge(r.status)}</td></tr>`;
-  const tbl=(a,empty)=>a.length?`<div class="tw"><table>${a.map(row).join('')}</table></div>`:`<p class="mut sm">${empty}</p>`;
+  const tbl=(a,empty)=>a.length?`<div class="tw"><table class="ov">${a.map(row).join('')}</table></div>`:`<p class="mut sm">${empty}</p>`;
   M(`<h1>Übersicht</h1><p class="mut">Woche ${fd(ws)} – ${fd(we)}</p>
   <div class="grid">
    ${admin()?`<div class="card kpi"><div class="l">Kontostand Valiant</div><div class="v num">${b?chf(b.amount_chf):'–'}</div><div class="sm mut">${b?'Stand '+fd(b.as_of):'kein Stand erfasst'}</div></div>`:''}

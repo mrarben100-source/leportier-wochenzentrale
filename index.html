@@ -169,7 +169,7 @@ async function refresh(){await load();route()}
 const NAV=[['uebersicht','Übersicht'],['aufgaben','Aufgaben'],['rechnungen','Rechnungen'],['finanzen','Finanzen'],['events','Events'],['lieferanten','Lieferanten'],['bestellungen','Bestellungen'],['personal','Personal'],['dokumente','Dokumente'],['kalender','Kalender'],['email','E-Mail'],['bexio','Bexio'],['protokoll','Protokoll']];
 function shell(){
   root.innerHTML=`<div id="app"><nav><div class="brand"><img src="icon-180.png" alt=""><div>Le Portier N°35<span>Wochenzentrale</span></div></div>${NAV.map(([k,l])=>`<a href="#${k}" data-k="${k}">${l}</a>`).join('')}
-  <div class="who">${esc(S.name)} · ${esc({admin:'Admin',editor:'Bearbeiter',viewer:'Nur lesen'}[S.role])}<br><button onclick="logout()">Abmelden</button></div></nav><main id="main"></main></div>`;
+  <div class="who">${esc(S.name)} · ${esc({admin:'Admin',editor:'Bearbeiter',viewer:'Nur lesen'}[S.role])}<br><button onclick="appUpdate()" title="Neueste Version laden">↻ Aktualisieren</button> <button onclick="logout()">Abmelden</button></div></nav><main id="main"></main></div>`;
 }
 window.onhashchange=()=>S.role&&route();
 function route(){
@@ -177,6 +177,20 @@ function route(){
   ({uebersicht:vHome,aufgaben:()=>vList('aufgaben'),rechnungen:vBills,finanzen:vFin,events:()=>vList('events'),lieferanten:()=>vList('lieferanten'),bestellungen:vOrders,personal:()=>vList('personal'),dokumente:vDocs,kalender:vCal,email:vMail,bexio:vBexio,protokoll:vLog}[k]||vHome)();
 }
 const M=h=>$('#main').innerHTML=h;
+/* Neueste Version laden, ohne die Home-Bildschirm-App zu löschen: Zwischenspeicher leeren und mit neuer Adresse neu laden */
+async function appUpdate(){
+  try{if('caches' in window)for(const k of await caches.keys())await caches.delete(k);if(navigator.serviceWorker)for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister()}catch(e){}
+  location.replace(location.pathname+'?v='+Date.now()+location.hash);
+}
+/* Prüfen, ob eine neue Version online ist (beim Zurückkehren in die App und alle 5 Minuten) */
+const verHash=t=>{let h=0;for(let i=0;i<t.length;i++)h=(h*31+t.charCodeAt(i))|0;return h};
+async function verCheck(){
+  try{const t=await (await fetch(location.pathname+'?check='+Date.now(),{cache:'no-store'})).text(),h=verHash(t);
+    if(S.ver==null){S.ver=h;return}
+    if(h!==S.ver&&!$('#upd-bar')){const b=document.createElement('div');b.id='upd-bar';b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));background:#1c1b19;color:#fff;padding:10px 14px;border-radius:12px;z-index:100;display:flex;gap:10px;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:92vw';
+      b.innerHTML='<span>Neue Version der Wochenzentrale verfügbar</span><button class="btn xs" onclick="appUpdate()">Aktualisieren</button>';document.body.appendChild(b)}}catch(e){}
+}
+verCheck();setInterval(verCheck,300000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)verCheck()});
 /* Tabellen fürs Handy vorbereiten: jede Zelle bekommt den Spaltennamen als data-label.
    Tabellen mit weniger als 4 Spalten bleiben normale Tabellen. */
 function cards(el=document){

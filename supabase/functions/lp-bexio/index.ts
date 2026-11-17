@@ -165,11 +165,23 @@ Deno.serve(async (req) => {
     if (body.action === "bill_paid") {
       const id = String(body.id ?? ""), value = num(body.amount), date = day(body.date);
       if (!id || !value || !date) return json({ error: "Rechnung, Betrag und Datum nötig" }, 400);
-      const r = await B.call("POST", `/4.0/purchase/outgoing-payments`, {
+      // Bankkonto, über das bereits bezahlt wurde (Bexio verlangt es für MANUAL): das GmbH-Konto aus Bexio
+      const { data: banks } = await sb.from("lp_bexio").select("bexio_id,data").eq("kind", "bank_account");
+      const bank = (banks ?? []).find((x: any) => String(x.bexio_id) === String(body.bank_account_id ?? "")) ?? (banks ?? []).find((x: any) => /0507641340907$/.test(String(x.data?.iban_nr ?? "").replace(/\s/g, ""))) ?? (banks ?? [])[0];
+      if (!bank) return json({ error: "Kein Bankkonto in Bexio gefunden – bitte zuerst «Jetzt abgleichen»." }, 400);
+      const pay = (sender: unknown) => B.call("POST", `/4.0/purchase/outgoing-payments`, {
         bill_id: id, payment_type: "MANUAL" /* nur verbuchen, nie ausführen */, execution_date: date, amount: value,
+        sender_bank_account_id: sender,
         currency_code: body.currency || "CHF", exchange_rate: 1, is_salary_payment: false,
         note: ("Wochenzentrale: bereits bezahlt am " + date).slice(0, 80),
       });
+      // Bexio-Konto als Zahl; falls Bexio die UUID erwartet, einmal mit UUID wiederholen
+      let r;
+      try { r = await pay(Number(bank.bexio_id)); }
+      catch (e) {
+        if (e instanceof BexioError && e.status === 400 && /sender_bank_account/i.test(e.message) && bank.data?.uuid) r = await pay(bank.data.uuid);
+        else throw e;
+      }
       await log("bexio_bill_paid", "bill:" + id, { value, date, bank_tx: body.bank_tx ?? null, bexio: r });
       return json({ ok: true, result: r });
     }

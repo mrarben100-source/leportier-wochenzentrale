@@ -974,7 +974,7 @@ function bxBankMatch(){
   for(const b of bills){
     const name=b.vendor||b.lastname_company||bxContact(b.contact_id)||'',r=recOf[String(b.id)],alias=r?firma(r):'';let rest=bxOpen(b)||0;
     if(!name||rest<=0.05)continue;
-    const pays=S.tx.filter(t=>+t.amount_chf<0&&t.review_state!=='duplikat'&&!intern(t)&&!used.has(t.id)&&!/In Bexio gebucht/.test(t.notes||'')&&(!b.bill_date||t.booking_date>=String(b.bill_date).slice(0,10))
+    const pays=S.tx.filter(t=>+t.amount_chf<0&&konto(t)==='GmbH'&&t.review_state!=='duplikat'&&!intern(t)&&!used.has(t.id)&&!/In Bexio gebucht/.test(t.notes||'')&&(!b.bill_date||t.booking_date>=String(b.bill_date).slice(0,10))
       &&(bxSame(name,payee(t))||bxSame(name,t.description)||(alias&&bxSame(alias,payee(t))))).sort((x,y)=>x.booking_date.localeCompare(y.booking_date));
     const take=[];for(const t of pays){if(rest<=0.05)break;const a=Math.min(-t.amount_chf,rest);take.push({t,a:Math.round(a*100)/100});rest-=a;used.add(t.id)}
     if(take.length)res[String(b.id)]={b,r,name,take,sum:Math.round(take.reduce((s,x)=>s+x.a,0)*100)/100};

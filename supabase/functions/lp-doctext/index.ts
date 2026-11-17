@@ -27,7 +27,10 @@ function parsePos(t: string) {
   if (!dm) return null;
   const datum = `${dm[3]}-${MON[dm[2].toLowerCase()]}-${dm[1].padStart(2, "0")}`;
   const val = (label: RegExp) => { const m = t.match(new RegExp(label.source + "\\s*\\n?\\s*CHF\\s*([\\d'’.,]+)", "i")); return m ? amt(m[1]) : null; };
-  const netto = val(/Umsatz \(Netto\)/), tg = val(/Trinkgeld/), brutto = val(/Total \(Brutto\)/);
+  let netto = val(/Umsatz \(Netto\)/), tg = val(/Trinkgeld/), brutto = val(/Total \(Brutto\)/);
+  // Foto-Layout: Überschriften in einer Zeile, Werte in der nächsten («CHF 876.00 CHF 12.50 CHF 888.50 61»)
+  const row = t.match(/Umsatz \(Netto\)[^\n]*Total \(Brutto\)[^\n]*\n\s*CHF\s*([\d'’.,]+)\s+CHF\s*([\d'’.,]+)\s+CHF\s*([\d'’.,]+)(?:\s+(\d+))?/i);
+  if (row) { netto = amt(row[1]); tg = amt(row[2]); brutto = amt(row[3]); }
   if (netto == null) return null;
   // Zahlungsmethoden: «CARD 106 CHF 1698.00 CHF 34.75 CHF 1732.75»
   const sec = t.split(/Nach Zahlungsmethode/i)[1]?.split(/Nach Mitarbeiter|Total \d/i)[0] ?? "";
@@ -38,7 +41,7 @@ function parsePos(t: string) {
   }
   if (Math.abs(bar + unbar + sonst - netto) > 0.05) { unbar = netto - bar - sonst; }
   const zr = t.match(/(\d{1,2}:\d{2})\s*[–-]\s*(\d{1,2}:\d{2})/);
-  const belege = +(t.match(/Belege\s*\n?\s*(\d+)/i)?.[1] ?? 0);
+  const belege = row?.[4] ? +row[4] : +(t.match(/Belege\s*\n?\s*(\d+)/i)?.[1] ?? 0);
   return { quelle: "bfpos-pdf", datum, terminal: "alle Terminals (PDF)", abschluss: datum.slice(8) + "." + datum.slice(5, 7) + ".", bar: Math.round(bar * 100) / 100, unbar: Math.round(unbar * 100) / 100, sonstige: Math.round(sonst * 100) / 100, netto, trinkgeld: tg ?? 0, brutto: brutto ?? netto + (tg ?? 0), belege, zeitraum: zr ? zr[1] + "–" + zr[2] : null, produkte: [], methoden: [], mwst: [], ok: true };
 }
 async function posToEvent(sb: any, d: any, t: string) {
@@ -62,7 +65,8 @@ async function posToEvent(sb: any, d: any, t: string) {
   det.kassen = [...rest, { ...K, doc: d.library_file_id }];
   const hinweis = `\nKASSE ${new Date().toISOString().slice(0, 10)} (automatisch aus «${d.file_name}»): Tagesabschluss ${K.abschluss}: Umsatz netto CHF ${K.netto.toFixed(2)} (Bar ${K.bar.toFixed(2)}, Karte ${K.unbar.toFixed(2)}, TWINT/Sonstige ${K.sonstige.toFixed(2)}), Trinkgeld ${K.trinkgeld.toFixed(2)}${K.zeitraum ? ", Zeitraum " + K.zeitraum : ""}.` +
     (sameDay > 1 && !K.zeitraum ? ` Achtung: An diesem Tag gibt es ${sameDay} Events; der Abschluss deckt den ganzen Tag ab – Aufteilung prüfen.` : "");
-  await sb.from("lp_records").update({ details: det, notes: (ev.notes || "") + hinweis }).eq("id", ev.id);
+  const altNotiz = (ev.notes || "").split("\n").filter((l: string) => !(l.startsWith("BELEG ") && l.includes("«" + d.file_name + "»"))).join("\n");
+  await sb.from("lp_records").update({ details: det, notes: altNotiz + hinweis }).eq("id", ev.id);
   if (!d.record_id) await sb.from("lp_documents").update({ record_id: ev.id }).eq("library_file_id", d.library_file_id);
   return "Event «" + ev.title + "»";
 }

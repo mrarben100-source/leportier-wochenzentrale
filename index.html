@@ -781,12 +781,14 @@ function invGuess(lines){
 }
 /* E-Mails einordnen: Offerten und neue Zusammenarbeiten sollen sichtbar werden, nicht nur Rechnungen */
 const MK={
-  rechnung:/rechnung|invoice|faktura|facture|mahnung|zahlungserinnerung|betreibung/i,
+  rechnung:/rechnung|invoice|faktura|facture|mahnung|zahlungserinnerung|betreibung|zahlung|inkasso|verlustschein|ratenplan|saldo/i,
+  auto:/^(automatische antwort|auto(?:matic)? ?reply|abwesenheit|out of office|r[ée]ponse automatique|unzustellbar|undeliverable|delivery status)/i,
   offerte:/offerte|\bangebot|quotation|\bquote\b|\bdevis\b|kostenvoranschlag|preisliste|konditionen|unverbindlich(?:e|es)? (?:angebot|offerte)/i,
   anfrage:/zusammenarbeit|kooperation|partnerschaft|sponsoring|sponsor|booking|buchungsanfrage|\banfrage\b|reservation|reservierung|location (?:mieten|miete|buchen)|raum ?miete|eventlocation|event bei (?:euch|ihnen)|firmenanlass|firmenevent|privatanlass|geburtstag(?:sfeier|sparty)|auftritt|auftreten|\bdj\b|künstler|artist|collaboration|partnership|cooperation|influencer|promotion|veranstalt(?:en|ung) bei/i,
   werbung:/newsletter|abmelden|unsubscribe|no-?reply|noreply|mailchimp|sendinblue|brevo|hubspot|linkedin|facebookmail|google\.com|apple\.com/i};
 function mailKind(m){
   const head=(m.subject||'')+' '+(m.attachments||[]).map(a=>a.name).join(' '),all=head+' '+(m.snippet||''),from=(m.from_address||'')+' '+(m.from_name||'');
+  if(MK.auto.test((m.subject||'').trim()))return null;
   if(MK.rechnung.test(head))return 'rechnung';
   if(MK.werbung.test(from)||/unsubscribe|abmelden|newsletter/i.test(m.snippet||''))return null;
   if(MK.offerte.test(head)||(MK.offerte.test(m.snippet||'')&&!MK.anfrage.test(head)))return 'offerte';

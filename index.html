@@ -117,7 +117,7 @@ const ST={offen:'Offen',in_bearbeitung:'In Bearbeitung',wartet:'Wartet',erledigt
 const PR={hoch:'1',mittel:'2',niedrig:'3'};
 const CAT={aufgabe:'Aufgabe',zahlung:'Zahlung',event:'Event',lieferant:'Lieferant',dokument:'Dokument',personal:'Personal',vertrag:'Vertrag'};
 const PEOPLE=['Arben','Dennis','Levent'];
-const DOCCAT={'Finanzen':'vertraulich/finanzen','Lieferantenrechnungen':'lieferantenrechnungen','Bankauszüge':'vertraulich/bankauszuege','Zahlungsbestätigungen':'zahlungsbestaetigungen','Eventabrechnungen':'eventabrechnungen','Arbeitsverträge':'vertraulich/arbeitsvertraege','Lohnabrechnungen':'vertraulich/lohnabrechnungen','Versicherungen':'versicherungen','Mietvertrag':'mietvertrag','Betreibungen':'vertraulich/betreibungen','Buchhaltung':'vertraulich/buchhaltung','Sponsoringverträge':'sponsoringvertraege','Umsatzberichte':'umsatzberichte','Personal':'vertraulich/personal','personal':'vertraulich/personal','finanzen':'vertraulich/finanzen','buchhaltung':'vertraulich/buchhaltung','event':'eventabrechnungen','lieferant/vertrag':'lieferant-vertrag'};
+const DOCCAT={'Finanzen':'vertraulich/finanzen','Lieferantenrechnungen':'lieferantenrechnungen','Kundenrechnungen':'kundenrechnungen','Bankauszüge':'vertraulich/bankauszuege','Zahlungsbestätigungen':'zahlungsbestaetigungen','Eventabrechnungen':'eventabrechnungen','Arbeitsverträge':'vertraulich/arbeitsvertraege','Lohnabrechnungen':'vertraulich/lohnabrechnungen','Versicherungen':'versicherungen','Mietvertrag':'mietvertrag','Betreibungen':'vertraulich/betreibungen','Buchhaltung':'vertraulich/buchhaltung','Sponsoringverträge':'sponsoringvertraege','Umsatzberichte':'umsatzberichte','Personal':'vertraulich/personal','personal':'vertraulich/personal','finanzen':'vertraulich/finanzen','buchhaltung':'vertraulich/buchhaltung','event':'eventabrechnungen','lieferant/vertrag':'lieferant-vertrag'};
 const KIND={normal:'Normal',lieferantenbestellung:'Lieferantenbestellung',schuldenrueckzahlung:'Schuldenrückzahlung',lohn:'Lohn',event:'Event',sonstiges:'Sonstiges'};
 const RV={ok:'OK',zu_pruefen:'Zu prüfen',duplikat:'Duplikat'};
 const EVF=[['veranstalter','Veranstalter'],['verantwortlich','Verantwortliche'],['dj','DJ'],['security','Security'],['bar','Bar'],['garderobe','Garderobe'],['personalstunden','Personalstunden','n'],['ein_ticket','Ticketeinnahmen CHF','n'],['ein_karte','Karteneinnahmen CHF','n'],['ein_twint','TWINT-Einnahmen CHF','n'],['ein_bar','Bareinnahmen CHF','n'],['kosten_getraenke','Getränkekosten CHF','n'],['kosten_weitere','Weitere Ausgaben CHF','n'],['kosten_personal','Personalkosten CHF (Stempeluhr)','n'],['fehlende_belege','Fehlende Belege'],['freigabe','Zahlungsfreigabe']];
@@ -231,12 +231,13 @@ function cards(el=document){
 }
 new MutationObserver(()=>{clearTimeout(cards._t);cards._t=setTimeout(()=>cards(),30)}).observe(document.body,{childList:true,subtree:true});
 const open=r=>r.status!=='erledigt';
+const isKR=r=>r.details?.art==='kundenrechnung';
 const paidFor=id=>S.tx.filter(t=>t.record_id===id).reduce((a,t)=>a+Math.abs(+t.amount_chf),0);
 
 /* ---------- Übersicht ---------- */
 function vHome(){
   const t=today(),ws=monday(t),we=addDays(ws,6),R=S.records;
-  const pay=R.filter(r=>r.category==='zahlung'),po=pay.filter(open),pd=pay.filter(r=>!open(r));
+  const pay=R.filter(r=>r.category==='zahlung'&&!isKR(r)),po=pay.filter(open),pd=pay.filter(r=>!open(r));
   const sum=a=>a.reduce((x,r)=>x+(+r.amount_chf||0),0);
   const crit=R.filter(r=>open(r)&&((r.due_date&&r.due_date<=addDays(t,7))||(/betreibung|mahnung/i.test(r.title+' '+r.notes)&&r.priority==='hoch')));
   const todayL=R.filter(r=>open(r)&&r.due_date&&r.due_date<=t), weekL=R.filter(r=>open(r)&&r.due_date&&r.due_date>t&&r.due_date<=we);
@@ -473,7 +474,7 @@ const firma=r=>(r.details?.firma||r.title.replace(/^Rechnung\s+/i,'').replace(/-
 const billState=r=>r.status==='erledigt'?'bezahlt':r.status==='zu_pruefen'?'pruefen':'offen';
 function vBills(){
   const f=S.f.bill??={v:'offen',q:''},q=f.q.toLowerCase(),t=today();
-  const all=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&!['bestellung','wiederkehrend'].includes(r.details?.art)&&!r.details?.dublette);
+  const all=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&!['bestellung','wiederkehrend','kundenrechnung'].includes(r.details?.art)&&!r.details?.dublette);
   const sum=k=>all.filter(r=>billState(r)===k).reduce((s,r)=>s+(+r.amount_chf||0),0),cnt=k=>all.filter(r=>billState(r)===k).length,nob=k=>all.filter(r=>billState(r)===k&&r.amount_chf==null).length;
   const show=all.filter(r=>(f.v==='alle'||billState(r)===f.v)&&(!q||(firma(r)+' '+r.title+' '+r.notes).toLowerCase().includes(q)));
   const G={};show.forEach(r=>(G[firma(r)]??=[]).push(r));
@@ -490,9 +491,15 @@ function vBills(){
   ${firms.map(([n,rs])=>{const o=rs.filter(r=>billState(r)!=='bezahlt'),os=o.reduce((s,r)=>s+(+r.amount_chf||0),0);return `<div class="card" style="margin-bottom:10px"><h2>${esc(n)} ${o.length?`<span class="b ${o.some(r=>billState(r)==='offen')?'p1':'zu_pruefen'}">${o.length} offen${os?' · '+chf(os):''}</span>`:'<span class="b erledigt">alles bezahlt</span>'}</h2>
    <div class="tw"><table><tr><th>Posten</th><th>Fällig</th><th class="r">Betrag</th><th class="r">Laut Bank bezahlt</th><th class="r">Rest</th><th>Status</th><th>Beleg</th><th></th></tr>
    ${rs.map(r=>{const p=paidFor(r.id),docs=S.docs.filter(x=>x.record_id===r.id).length,done=billState(r)==='bezahlt',rest=r.amount_chf==null?null:done?0:Math.max(r.amount_chf-p,0);return `<tr class="click" onclick="editRec('${r.id}')"><td>${esc(r.title)}${r.details?.bexio?' <span class="b g">Bexio</span>':''}<div class="sm mut">${esc((r.notes||'').slice(0,140))}</div></td><td class="num" style="${!done&&r.due_date&&r.due_date<t?'color:var(--red)':''}">${fd(r.due_date)}</td><td class="num r">${chf(r.amount_chf)}</td><td class="num r">${p?chf(p):'–'}</td><td class="num r"><b>${chf(rest)}</b></td><td>${sbadge(r.status)}${r.confirmed_on&&done?'<div class="sm mut">'+fd(r.confirmed_on)+'</div>':''}</td><td class="sm">${docs?docs+' Beleg'+(docs>1?'e':''):'<span style="color:var(--red)">kein Beleg</span>'}</td><td>${!done&&admin()?`<button class="btn xs sec" onclick="event.stopPropagation();billPaid('${r.id}')">Als bezahlt markieren</button>`:''}</td></tr>`}).join('')}</table></div></div>`}).join('')||'<div class="card"><p class="mut">Keine Posten in dieser Ansicht.</p></div>'}
+  ${krBox(q)}
   ${admin()?`<div class="card" style="margin-top:14px"><h2>Wohin laut Bank Geld geflossen ist</h2><p class="sm mut">Ausgänge vom GmbH-Konto nach Empfänger, ohne interne Transfers. Bargeldbezüge, Gebühren und Überträge ohne Empfängerangabe sind nicht enthalten.</p><div class="tw" style="max-height:50vh;overflow:auto"><table><tr><th>Empfänger</th><th class="r">Zahlungen</th><th class="r">Total bezahlt</th><th>Letzte Zahlung</th></tr>${payees.map(([n,p])=>`<tr><td>${esc(n)}</td><td class="r">${p.n}</td><td class="num r">${chf(p.s)}</td><td class="num">${fd(p.last)}</td></tr>`).join('')||'<tr><td colspan="4" class="mut">Keine Zahlungen gefunden.</td></tr>'}</table></div></div>`:''}`);
   $('#bq').onchange=e=>{f.q=e.target.value;vBills()};
 }
+/* Gestellte Rechnungen (aus Mails übernommen, details.art 'kundenrechnung'): keine Schulden, Zahlungseingang laut Bank */
+function krBox(q){const K=S.records.filter(r=>isKR(r)&&(!q||(r.title+' '+(r.details?.firma||'')).toLowerCase().includes(q))).sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||''));if(!K.length)return'';
+  const st=r=>{const p=paidFor(r.id);return r.status==='erledigt'||(r.amount_chf!=null&&p>=+r.amount_chf-0.05)?'bezahlt':p>0?'teilweise':'offen'},op=K.filter(r=>st(r)!=='bezahlt');
+  return `<div class="card" style="margin-top:14px"><h2>Gestellte Rechnungen (aus Mail) <span class="b g">${op.length} offen · ${chf(op.reduce((s,r)=>s+Math.max((+r.amount_chf||0)-paidFor(r.id),0),0))}</span></h2><p class="sm mut">Rechnungen, die ihr selbst verschickt habt. Sie sind Guthaben, keine Schulden. «Bezahlt» heisst: Zahlungseingang in der Bank gefunden.</p>
+  <div class="tw"><table><tr><th>Kunde</th><th>Fällig</th><th class="r">Betrag</th><th class="r">Eingang laut Bank</th><th>Status</th></tr>${K.map(r=>{const s=st(r);return `<tr class="click" onclick="editRec('${r.id}')"><td>${esc(r.title)}</td><td class="num">${fd(r.due_date)}</td><td class="num r">${chf(r.amount_chf)}</td><td class="num r">${paidFor(r.id)?chf(paidFor(r.id)):'–'}</td><td><span class="b ${s==='bezahlt'?'erledigt':s==='teilweise'?'in_bearbeitung':'offen'}">${s==='bezahlt'?'Bezahlt':s==='teilweise'?'Teilweise':'Offen'}</span></td></tr>`}).join('')}</table></div></div>`}
 async function billPaid(id){const r=S.records.find(x=>x.id===id);if(!confirm('«'+r.title+'»'+(r.amount_chf!=null?' über '+chf(r.amount_chf):'')+' als bezahlt markieren?\n\nEs wird keine Zahlung ausgelöst. Nur bestätigen, wenn die Zahlung wirklich erfolgt ist.'))return;
   const {data,error}=await sb.from('lp_records').update({status:'erledigt',confirmed_on:today(),notes:(r.notes||'')+' Als bezahlt markiert am '+fd(today())+' von '+S.name+'.'}).eq('id',id).eq('updated_at',r.updated_at).select('id');
   if(error)return fail(error);if(!data.length)toast('Inzwischen geändert, bitte nochmals versuchen',1);else toast('Als bezahlt markiert');refresh()}
@@ -595,7 +602,7 @@ function vFin(){
   const a=S.tx.filter(t=>(!f.konto||konto(t)===f.konto)&&(!f.jahr||t.booking_date.startsWith(f.jahr))&&(!f.from||t.booking_date>=f.from)&&(!f.to||t.booking_date<=f.to)&&(f.rv?t.review_state===f.rv:t.review_state!=='duplikat')&&(!q||(t.description+' '+t.category).toLowerCase().includes(q)));
   const live=a.filter(t=>t.review_state!=='duplikat'&&!intern(t)),inn=live.filter(t=>+t.amount_chf>0).reduce((s,t)=>s+ +t.amount_chf,0),out=live.filter(t=>+t.amount_chf<0).reduce((s,t)=>s- +t.amount_chf,0);
   const g={};live.forEach(t=>{const k=f.grp==='m'?t.booking_date.slice(0,7):'Woche ab '+fd(monday(t.booking_date));g[k]??={in:0,out:0,n:0,s:t.booking_date};+t.amount_chf>=0?g[k].in+=+t.amount_chf:g[k].out-=+t.amount_chf;g[k].n++});
-  const recs=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category));
+  const recs=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&!isKR(r));
   M(`<h1>Finanzen und Bankabgleich</h1>
   <div class="bar"><b>Jahr:</b> <select id="gj"><option value="">Alle Jahre</option>${yrs.map(y=>`<option${f.jahr===y?' selected':''}>${y}</option>`).join('')}</select></div>
   <div class="grid"><div class="card kpi"><div class="l">Kontostand Valiant</div><div class="v num">${b?chf(b.amount_chf):'–'}</div><div class="sm mut">${b?'Stand '+fd(b.as_of)+' · '+esc(b.source):''}${S.balAG?.[0]?'<br>Konto AG: '+chf(S.balAG[0].amount_chf)+' (Stand '+fd(S.balAG[0].as_of)+')':''}</div><button class="btn xs sec" style="margin-top:8px" onclick="newBal()">Neuen Stand erfassen</button></div>
@@ -1080,7 +1087,7 @@ async function bxLinkDocs(){
     try{const f=await sb.storage.from('lp-dokumente').download(d.storage_path);if(f.error)throw f.error;await ensurePdf();const L=await pdfLines(await pdfjsLib.getDocument({data:new Uint8Array(await f.data.arrayBuffer())}).promise);g=invGuess(L);txt=L.join(' ')}catch(e){console.warn(e)}
     const mark=async(note,rid)=>{const v={notes:((d.notes||'')+' '+note+' [geprüft]').trim()};if(rid)v.record_id=rid;await sb.from('lp_documents').update(v).eq('library_file_id',d.library_file_id)};
     if(g.amt==null||!/rechnung|invoice|faktura|facture/i.test(txt)){await mark('Kein Rechnungsbetrag erkannt.');continue}
-    const cand=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&open(r)&&r.amount_chf!=null&&Math.abs(+r.amount_chf-g.amt)<=0.05);
+    const cand=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&!isKR(r)&&open(r)&&r.amount_chf!=null&&Math.abs(+r.amount_chf-g.amt)<=0.05);
     if(cand.length===1){await mark('Verknüpft mit «'+cand[0].title+'» (Betrag '+chf(g.amt)+').',cand[0].id);continue}
     const r=await sb.from('lp_records').insert({source_key:'bexio-doc-'+d.library_file_id,category:'zahlung',title:'Rechnung (Bexio-Beleg) '+d.file_name.replace(/\.pdf$/i,''),status:'zu_pruefen',priority:'mittel',amount_chf:g.amt,due_date:g.due,responsible:'Arben',evidence:d.file_name,
       notes:'Entwurf aus Bexio-Beleg. Betrag und Fälligkeit automatisch aus dem PDF gelesen und nicht bestätigt'+(cand.length>1?' ('+cand.length+' mögliche Einträge mit gleichem Betrag)':'')+'. Keine Zahlung ausgelöst.',details:{art:'bexio_beleg'}}).select('id').single();
@@ -1143,11 +1150,11 @@ function bxDiffs(){
     out.push({b,r,name,typ:'paid_manual',txt:'In Bexio offen: '+name+' '+(b.document_no||'')+' – noch '+chf(bxOpen(b))+' offen, keine passende Bankzahlung gefunden. Schon bezahlt?'});
   });
   bills.filter(b=>bxBillOpen(b)&&!/draft/i.test(b.status||'')&&!linked.has(String(b.id))&&!bxLater(b.id)).forEach(b=>{
-    const name=b.vendor||b.lastname_company||bxContact(b.contact_id)||'Lieferant',cand=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&r.status!=='erledigt'&&!r.details?.bexio&&bxSame(name,r.title+' '+(r.details?.firma||'')));
+    const name=b.vendor||b.lastname_company||bxContact(b.contact_id)||'Lieferant',cand=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&r.status!=='erledigt'&&!isKR(r)&&!r.details?.bexio&&bxSame(name,r.title+' '+(r.details?.firma||'')));
     out.push({b,cand,name,typ:'only_bx',txt:'Nur in Bexio: '+name+' '+(b.document_no||'')+', offen '+chf(bxOpen(b))+(b.due_date?', fällig '+fd(String(b.due_date).slice(0,10)):'')});
   });
   const names=new Set(bxList('contact').map(c=>[c.name_1,c.name_2].filter(Boolean).join(' ')));
-  if(names.size){const seen=new Set();S.records.filter(r=>r.category==='zahlung'&&open(r)&&!r.details?.bexio&&!/darlehen|lohn|privat|afro event/i.test(r.title)).forEach(r=>{const f=firma(r),k=bxNorm(f);if(!f||seen.has(k)||[...names].some(n=>bxSame(f,n)||bxSame(n,f)))return;seen.add(k);out.push({r,typ:'contact',txt:'Gläubiger «'+f+'» fehlt in Bexio'})})}
+  if(names.size){const seen=new Set();S.records.filter(r=>r.category==='zahlung'&&!isKR(r)&&open(r)&&!r.details?.bexio&&!/darlehen|lohn|privat|afro event/i.test(r.title)).forEach(r=>{const f=firma(r),k=bxNorm(f);if(!f||seen.has(k)||[...names].some(n=>bxSame(f,n)||bxSame(n,f)))return;seen.add(k);out.push({r,typ:'contact',txt:'Gläubiger «'+f+'» fehlt in Bexio'})})}
   return out;
 }
 const bxLaterBtn=x=>x.b?`<button class="btn xs sec" title="14 Tage ausblenden" onclick="bxSnooze('${x.b.id}')">Später</button>`:'';
@@ -1156,7 +1163,7 @@ const bxRow0=(x,i)=>x.typ==='paid_manual'?`<button class="btn xs" onclick="bxPai
   x.typ==='paid_bx'?`<button class="btn xs" onclick="bxFix(${i})">In Wochenzentrale erledigen</button>`:
   x.typ==='bx_high'?`<button class="btn xs" onclick="bxFix(${i})">Fehlende Zahlung in Bexio verbuchen</button>`:
   x.typ==='contact'?`<button class="btn xs sec" onclick="bxFix(${i})">Kontakt in Bexio anlegen</button>`:
-  x.typ==='only_bx'?`<select id="bxs${i}" style="max-width:220px">${x.cand.map(r=>`<option value="${r.id}">gehört zu: ${esc(r.title.slice(0,40))} (${chf(r.amount_chf)})</option>`).join('')}<option value="">— neu in Wochenzentrale übernehmen —</option><optgroup label="andere offene Posten">${S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&r.status!=='erledigt'&&!r.details?.bexio&&!x.cand.includes(r)).sort((a,b)=>a.title.localeCompare(b.title)).map(r=>`<option value="${r.id}">${esc(r.title.slice(0,40))} (${chf(r.amount_chf)})</option>`).join('')}</optgroup></select><button class="btn xs" onclick="bxFix(${i})">Übernehmen</button>`:
+  x.typ==='only_bx'?`<select id="bxs${i}" style="max-width:220px">${x.cand.map(r=>`<option value="${r.id}">gehört zu: ${esc(r.title.slice(0,40))} (${chf(r.amount_chf)})</option>`).join('')}<option value="">— neu in Wochenzentrale übernehmen —</option><optgroup label="andere offene Posten">${S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&r.status!=='erledigt'&&!isKR(r)&&!r.details?.bexio&&!x.cand.includes(r)).sort((a,b)=>a.title.localeCompare(b.title)).map(r=>`<option value="${r.id}">${esc(r.title.slice(0,40))} (${chf(r.amount_chf)})</option>`).join('')}</optgroup></select><button class="btn xs" onclick="bxFix(${i})">Übernehmen</button>`:
   `<button class="btn xs sec" onclick="bxFix(${i},'bx')">Bexio-Wert übernehmen</button><button class="btn xs sec" onclick="bxFix(${i},'wz')">Wochenzentrale gilt</button>`;
 /* «Bereits bezahlt»: Bankbuchungen frei auswählen (GmbH und AG) oder ohne Bankbuchung (bar/privat) – nur verbuchen, nie überweisen */
 function bxPaidDlg(id){

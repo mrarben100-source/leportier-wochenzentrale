@@ -42,7 +42,16 @@ function parsePos(t: string) {
   return { quelle: "bfpos-pdf", datum, terminal: "alle Terminals (PDF)", abschluss: datum.slice(8) + "." + datum.slice(5, 7) + ".", bar: Math.round(bar * 100) / 100, unbar: Math.round(unbar * 100) / 100, sonstige: Math.round(sonst * 100) / 100, netto, trinkgeld: tg ?? 0, brutto: brutto ?? netto + (tg ?? 0), belege, zeitraum: zr ? zr[1] + "–" + zr[2] : null, produkte: [], methoden: [], mwst: [], ok: true };
 }
 async function posToEvent(sb: any, d: any, t: string) {
-  const K = parsePos(t); if (!K) return null;
+  const K = parsePos(t);
+  if (!K) {
+    // Kein bekanntes Tagesabschluss-Format: bei Event-Belegen einen Hinweis mit dem erkannten Text hinterlassen
+    if (!d.record_id || d.category !== "Eventabrechnungen") return null;
+    const { data: ev } = await sb.from("lp_records").select("id,category,notes").eq("id", d.record_id).maybeSingle();
+    if (ev?.category !== "event" || (ev.notes || "").includes("«" + d.file_name + "»")) return null;
+    const auszug = t.replace(/\s+/g, " ").trim().slice(0, 400);
+    await sb.from("lp_records").update({ notes: (ev.notes || "") + `\nBELEG ${new Date().toISOString().slice(0, 10)} «${d.file_name}»: gelesen, aber kein Tagesabschluss-Format erkannt – Beträge bitte prüfen. Erkannter Text: ${auszug}` }).eq("id", ev.id);
+    return "Hinweis im Event";
+  }
   let ev: any = null;
   if (d.record_id) { const { data } = await sb.from("lp_records").select("id,category,title,details,notes,due_date").eq("id", d.record_id).maybeSingle(); if (data?.category === "event") ev = data; }
   if (!ev) { const { data } = await sb.from("lp_records").select("id,category,title,details,notes,due_date").eq("category", "event").eq("due_date", K.datum); if ((data ?? []).length === 1) ev = data[0]; else return "kein eindeutiges Event am " + K.datum; }
@@ -63,7 +72,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   // eigene Uploads zuerst, danach Bexio-Belege
-  const q = () => sb.from("lp_documents").select("library_file_id,file_name,storage_path,size_bytes,record_id,category")
+  const q = () => sb.from("lp_documents").select("library_file_id,file_name,storage_path,size_bytes,record_id,category,content_text")
     .is("content_at", null).not("storage_path", "is", null).order("created_at", { ascending: false }).limit(BATCH);
   const a = await q().not("library_file_id", "like", "bexio_%");
   if (a.error) return new Response(JSON.stringify({ error: a.error.message }), { status: 500, headers: cors });
@@ -81,6 +90,7 @@ Deno.serve(async (req) => {
       const b = new Uint8Array(await dl.data.arrayBuffer()), k = kind(b, d.file_name);
       if (k === "pdf") { const pdf = await getDocumentProxy(b); const r = await extractText(pdf, { mergePages: false }); t = (r.text as string[]).join("\n"); }
       else if (k === "xlsx") { const wb = XLSX.read(b, { type: "array", cellDates: true }); t = wb.SheetNames.map((n) => "### Blatt: " + n + "\n" + XLSX.utils.sheet_to_csv(wb.Sheets[n], { FS: ";", blankrows: false })).join("\n\n"); }
+      else if (k === "image") { t = d.content_text ?? ""; } // Text kommt aus der Foto-Erkennung im Browser
       else if (k === "text") { t = new TextDecoder("utf-8").decode(b); if (t.includes("\ufffd")) t = new TextDecoder("windows-1252").decode(b); }
       t = t.replace(/\u0000/g, "");
       if (t.length > MAX) t = t.slice(0, MAX) + "\n[… gekürzt, Original hat " + t.length + " Zeichen]";

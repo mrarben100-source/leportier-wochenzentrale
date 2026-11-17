@@ -899,7 +899,8 @@ function vBexio(){
     <div class="bar"><button class="btn sec" onclick="bxContactNew()">+ Kontakt in Bexio anlegen</button></div>`}
   if(f.t==='file'){const a=files.filter(x=>m((x.name||'')+' '+(x.mime_type||''))).sort((x,y)=>String(y.created_at||'').localeCompare(String(x.created_at||'')));
     body=`<table><tr><th>Datei</th><th>Hochgeladen</th><th class="r">Grösse</th><th>Archiv</th></tr>${a.slice(0,300).map(x=>{const doc=S.docs.find(d=>d.library_file_id==='bexio_file_'+x.id),rec=doc?.record_id&&S.records.find(r=>r.id===doc.record_id);return `<tr><td>${esc(x.name||x.id)}${x.extension&&!String(x.name||'').includes('.')?'.'+esc(x.extension):''}</td><td class="num">${fd(String(x.created_at||'').slice(0,10))}</td><td class="num r">${x.size_in_bytes?Math.round(x.size_in_bytes/1024)+' KB':''}</td><td class="act">${doc?`<span class="b erledigt">im Archiv</span>${rec?' <a href="#rechnungen" onclick="editRec(\''+rec.id+'\');return false">'+esc(rec.title)+'</a>':''}`:`<button class="btn xs sec" onclick="bxArchive('file','${x.id}')">Ins Archiv</button>`}</td></tr>`}).join('')||'<tr><td colspan="4" class="mut">Keine Belege in Bexio gefunden.</td></tr>'}</table>
-    <p class="sm mut">Neue Belege der letzten 90 Tage werden beim Abgleich automatisch ins Archiv übernommen (Kategorie Lieferantenrechnungen), gelesen und mit der passenden Rechnung verknüpft – sonst als Entwurf «Zu prüfen» erfasst.</p>`}
+    <div class="bar"><button class="btn" onclick="bxArchiveAll()">Alle Belege ab 2025 ins Archiv (${files.filter(x=>String(x.created_at||'')>='2025'&&!S.docs.some(d=>d.library_file_id==='bexio_file_'+x.id)).length} offen)</button></div>
+    <p class="sm mut">Neue Belege ab 2025 werden beim Abgleich automatisch ins Archiv übernommen (je 20 pro Durchlauf) (Kategorie Lieferantenrechnungen), gelesen und mit der passenden Rechnung verknüpft – sonst als Entwurf «Zu prüfen» erfasst.</p>`}
   if(f.t==='diff'){body=diffs.length?`<table><tr><th>Eintrag</th><th>Unterschied</th><th>Angleichen</th></tr>${diffs.map((x,i)=>`<tr><td><a href="#" onclick="editRec('${x.r.id}');return false">${esc(x.r.title)}</a></td><td>${esc(x.txt)}</td><td class="act"><div class="bar" style="margin:0">${
       x.typ==='paid_wz'?`<button class="btn xs" onclick="bxFix(${i})">In Bexio als bezahlt verbuchen</button>`:
       x.typ==='paid_bx'?`<button class="btn xs" onclick="bxFix(${i})">In Wochenzentrale erledigen</button>`:
@@ -932,7 +933,7 @@ function bxCheckBox(){
 /* Belege aus Bexio (im Archiv) mit Rechnungen verknüpfen oder als Entwurf «Zu prüfen» anlegen */
 async function bxLinkDocs(){
   const docs=S.docs.filter(d=>/^bexio_file_/.test(d.library_file_id)&&!d.record_id&&d.storage_path&&!/\[geprüft\]/.test(d.notes||'')&&/\.pdf$/i.test(d.file_name));
-  for(const d of docs.slice(0,10)){
+  for(const d of docs.slice(0,60)){
     let g={amt:null,due:null},txt='';
     try{const f=await sb.storage.from('lp-dokumente').download(d.storage_path);if(f.error)throw f.error;await ensurePdf();const L=await pdfLines(await pdfjsLib.getDocument({data:new Uint8Array(await f.data.arrayBuffer())}).promise);g=invGuess(L);txt=L.join(' ')}catch(e){console.warn(e)}
     const mark=async(note,rid)=>{const v={notes:((d.notes||'')+' '+note+' [geprüft]').trim()};if(rid)v.record_id=rid;await sb.from('lp_documents').update(v).eq('library_file_id',d.library_file_id)};
@@ -944,6 +945,15 @@ async function bxLinkDocs(){
     await mark(r.error?'Entwurf fehlgeschlagen: '+r.error.message:'Als Rechnungsentwurf «Zu prüfen» erfasst.',r.data?.id);
   }
   await load();
+}
+async function bxArchiveAll(){
+  const todo=bxList('file').filter(x=>String(x.created_at||'')>='2025'&&!S.docs.some(d=>d.library_file_id==='bexio_file_'+x.id));
+  if(!todo.length)return toast('Alle Belege ab 2025 liegen bereits im Archiv');
+  if(!confirm(todo.length+' Beleg(e) aus Bexio ins Archiv der Wochenzentrale übernehmen? In Bexio wird dabei nichts verändert.'))return;
+  let ok=0,err=[];
+  for(const [i,x] of todo.entries()){toast('Beleg '+(i+1)+' / '+todo.length+' …');const d=await bexioCall({action:'fetch_pdf',kind:'file',id:x.id});if(d.error)err.push((x.name||x.id)+': '+d.error);else ok++}
+  await load();try{await bxLinkDocs()}catch(e){console.warn(e)}
+  toast(ok+' Beleg(e) übernommen'+(err.length?', '+err.length+' übersprungen':''),err.length>0);if(err.length)console.warn(err);vBexio();
 }
 async function bxArchive(kind,id){
   toast('Hole Datei aus Bexio…');const d=await bexioCall({action:'fetch_pdf',kind,id});

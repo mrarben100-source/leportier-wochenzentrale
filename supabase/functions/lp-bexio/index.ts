@@ -211,9 +211,9 @@ Deno.serve(async (req) => {
     if (st.length >= 6 && st.every((s) => s === 401 || s === 403))
       return json({ error: st.every((s) => s === 401) ? "Bexio lehnt den Schlüssel ab (401) – Schlüssel ungültig oder abgelaufen" : "Dem Bexio-Schlüssel fehlen Berechtigungen (403)", warnings: res.warnings, status: res.status }, 502);
 
-    // neue Belege der letzten 90 Tage automatisch ins Archiv (höchstens 20 pro Durchlauf)
+    // neue Belege ab 2025 automatisch ins Archiv (höchstens 20 pro Durchlauf)
     try {
-      const since = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+      const since = "2025-01-01"; // alle Belege ab 2025 (Wunsch Arben), schrittweise je 20 pro Durchlauf
       const { data: have } = await sb.from("lp_documents").select("library_file_id").like("library_file_id", "bexio_%");
       const got = new Set((have ?? []).map((d: any) => d.library_file_id));
       const todo = files.filter((f: any) => !got.has("bexio_file_" + f.id) && String(f.created_at ?? f.uploaded_at ?? "").slice(0, 10) >= since && /pdf|jpe?g|png/i.test(String(f.mime_type ?? f.name ?? "")) && !(f.is_archived === true)).slice(0, 20);

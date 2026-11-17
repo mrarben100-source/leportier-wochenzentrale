@@ -58,13 +58,15 @@ async function posToEvent(sb: any, d: any, t: string) {
   return "Event «" + ev.title + "»";
 }
 
-Deno.serve(async () => {
+const cors = { "Access-Control-Allow-Origin": "https://mrarben100-source.github.io", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   // eigene Uploads zuerst, danach Bexio-Belege
   const q = () => sb.from("lp_documents").select("library_file_id,file_name,storage_path,size_bytes,record_id,category")
     .is("content_at", null).not("storage_path", "is", null).order("created_at", { ascending: false }).limit(BATCH);
   const a = await q().not("library_file_id", "like", "bexio_%");
-  if (a.error) return new Response(JSON.stringify({ error: a.error.message }), { status: 500 });
+  if (a.error) return new Response(JSON.stringify({ error: a.error.message }), { status: 500, headers: cors });
   let docs = a.data ?? [];
   if (docs.length < BATCH) { const b = await q().like("library_file_id", "bexio_%"); docs = [...docs, ...(b.data ?? [])].slice(0, BATCH); }
   const res = { gelesen: 0, leer: 0, fehler: 0, kasse: 0 };
@@ -79,7 +81,7 @@ Deno.serve(async () => {
       const b = new Uint8Array(await dl.data.arrayBuffer()), k = kind(b, d.file_name);
       if (k === "pdf") { const pdf = await getDocumentProxy(b); const r = await extractText(pdf, { mergePages: false }); t = (r.text as string[]).join("\n"); }
       else if (k === "xlsx") { const wb = XLSX.read(b, { type: "array", cellDates: true }); t = wb.SheetNames.map((n) => "### Blatt: " + n + "\n" + XLSX.utils.sheet_to_csv(wb.Sheets[n], { FS: ";", blankrows: false })).join("\n\n"); }
-      else if (k === "text") { t = new TextDecoder("utf-8").decode(b); if (t.includes("�")) t = new TextDecoder("windows-1252").decode(b); }
+      else if (k === "text") { t = new TextDecoder("utf-8").decode(b); if (t.includes("\ufffd")) t = new TextDecoder("windows-1252").decode(b); }
       t = t.replace(/\u0000/g, "");
       if (t.length > MAX) t = t.slice(0, MAX) + "\n[… gekürzt, Original hat " + t.length + " Zeichen]";
       t.trim() ? res.gelesen++ : res.leer++;
@@ -89,5 +91,5 @@ Deno.serve(async () => {
     await sb.from("lp_documents").update({ content_text: t, content_at: new Date().toISOString() }).eq("storage_path", d.storage_path);
     if (t) { try { const z = await posToEvent(sb, d, t); if (z) { res.kasse++; console.log("lp-doctext kasse", d.file_name, "→", z); } } catch (e) { console.warn("lp-doctext kasse", d.file_name, String((e as Error)?.message ?? e)); } }
   }
-  return new Response(JSON.stringify(res), { headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify(res), { headers: { ...cors, "Content-Type": "application/json" } });
 });

@@ -66,6 +66,22 @@ input,select,textarea{font-size:16px}button.btn{min-height:40px}button.btn.xs{mi
 .fg{grid-template-columns:1fr}#evf{grid-template-columns:1fr!important}td,th{padding:6px}
 dialog{width:100vw;max-width:100vw;max-height:100dvh;height:100dvh;margin:0;border-radius:0}dialog form{padding:calc(14px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom))}
 .login{margin-top:calc(6vh + env(safe-area-inset-top))}#toast{bottom:calc(18px + env(safe-area-inset-bottom))}}
+/* Handy: breite Tabellen als Karten (Beschriftung kommt aus der Kopfzeile, siehe cards()) */
+@media(max-width:700px){
+.tw{overflow-x:visible}.week{grid-template-columns:1fr;overflow-x:visible}.day{min-height:0}
+table.cards,table.cards tbody{display:block;width:100%}
+table.cards tr.hd{display:none}
+table.cards tr{display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin:0 0 8px}
+table.cards tr.click:hover{background:var(--card)}
+table.cards td{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border:none;padding:4px 0;text-align:right;min-width:0;overflow-wrap:anywhere}
+table.cards td::before{content:attr(data-label);color:var(--mut);font-size:12px;text-align:left;flex:0 0 auto;max-width:45%}
+table.cards td:not([data-label])::before,table.cards td[data-label=""]::before{display:none}
+table.cards td:empty{display:none}
+table.cards td.t0{order:-1;display:block;text-align:left;font-weight:600;padding-top:2px}
+table.cards td.t0::before{display:none}
+table.cards td.act{justify-content:flex-end;flex-wrap:wrap}
+table.cards td.wide{display:block;text-align:left}table.cards td.wide::before{display:block;margin-bottom:2px}
+}
 @media print{nav,.bar,button{display:none!important}main{padding:0}}
 </style>
 </head>
@@ -160,6 +176,31 @@ function route(){
   ({uebersicht:vHome,aufgaben:()=>vList('aufgaben'),rechnungen:vBills,finanzen:vFin,events:()=>vList('events'),lieferanten:()=>vList('lieferanten'),bestellungen:vOrders,personal:()=>vList('personal'),dokumente:vDocs,kalender:vCal,email:vMail,protokoll:vLog}[k]||vHome)();
 }
 const M=h=>$('#main').innerHTML=h;
+/* Tabellen fürs Handy vorbereiten: jede Zelle bekommt den Spaltennamen als data-label.
+   Tabellen mit weniger als 4 Spalten bleiben normale Tabellen. */
+function cards(el=document){
+  el.querySelectorAll('table:not([data-cards])').forEach(t=>{
+    t.dataset.cards='1';
+    const rows=[...t.rows],hr=rows.find(r=>r.cells.length&&[...r.cells].every(c=>c.tagName==='TH'));
+    if(!hr)return;
+    const lab=[];[...hr.cells].forEach(c=>{for(let i=0;i<(c.colSpan||1);i++)lab.push(c.textContent.trim())});
+    if(lab.length<4)return;
+    t.classList.add('cards');
+    rows.forEach(r=>{
+      if(r.cells.length&&[...r.cells].every(c=>c.tagName==='TH')){r.classList.add('hd');return}
+      let col=0,first=true;
+      [...r.cells].forEach(c=>{
+        const span=c.colSpan||1;
+        if(span>=lab.length-1||span>2){c.classList.add('wide')}
+        else if(c.querySelector('button,input,select')&&!c.textContent.trim()){c.classList.add('act')}
+        else if(first&&c.textContent.trim()&&!c.classList.contains('r')&&!c.classList.contains('num')&&lab[col]&&!/^(p|prio|datum|zeit|fällig)$/i.test(lab[col])){c.classList.add('t0');first=false}
+        else if(lab[col])c.dataset.label=lab[col];
+        col+=span;
+      });
+    });
+  });
+}
+new MutationObserver(()=>{clearTimeout(cards._t);cards._t=setTimeout(()=>cards(),30)}).observe(document.body,{childList:true,subtree:true});
 const open=r=>r.status!=='erledigt';
 const paidFor=id=>S.tx.filter(t=>t.record_id===id).reduce((a,t)=>a+Math.abs(+t.amount_chf),0);
 
@@ -186,6 +227,7 @@ function vHome(){
   </div>
   <div class="note">Offene Zahlungen sind nur die erfassten Einzelbeträge. Sie sind kein bestätigter Gesamtschuldenstand; Salden mit Status «Zu prüfen» sind nicht bestätigt.</div>
   ${admin()&&S.members.some(m=>m.role==='pending')?`<div class="note red"><b>${S.members.filter(m=>m.role==='pending').length} Zugangsanfrage(n) offen.</b> <a href="#protokoll">Jetzt prüfen und freischalten</a></div>`:''}
+  ${(L=>L.length?`<div class="card" style="margin-bottom:12px;border-color:var(--blu)"><h2>Neue Offerten &amp; Anfragen aus E-Mails (${L.length})</h2>${tbl(L.sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||'')).slice(0,8),'')}</div>`:'')(R.filter(r=>open(r)&&r.details?.art==='mail_lead'))}
   <div class="cols">
    <div class="card"><h2>Meine Aufgaben (${esc(S.name)})</h2>${tbl(R.filter(r=>open(r)&&mine(r)).sort((a,b)=>(PR[a.priority]||9)-(PR[b.priority]||9)||(a.due_date||'9').localeCompare(b.due_date||'9')).slice(0,12),'Dir ist nichts Offenes zugewiesen.')}</div>
    <div class="card"><h2>Heute fällig und überfällig</h2>${tbl(todayL,'Nichts fällig.')}</div>
@@ -452,6 +494,9 @@ async function importCsv(){
   if(/\.xlsx?$/i.test(file.name)){
     try{if(!window.XLSX)await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';s.onload=ok;s.onerror=()=>no(new Error('Excel-Modul konnte nicht geladen werden'));document.head.appendChild(s)});
       const wb=XLSX.read(await file.arrayBuffer(),{cellDates:true});
+      // Schutz: Arbeitsmappen mit vielen Blättern oder Auswertungs-Blättern sind keine Bankauszüge
+      if(wb.SheetNames.length>3||wb.SheetNames.some(n=>/übersicht|verpflichtung|prüfung|szenario|aufgaben|kategorie/i.test(n)))
+        return toast('«'+file.name+'» sieht nicht nach einem Bankauszug aus ('+wb.SheetNames.length+' Blätter, z. B. «'+wb.SheetNames[0]+'»). Bitte unter «Dokumente» hochladen.',1);
       rows=wb.SheetNames.flatMap(n=>XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:true,defval:''})).map(r=>r.map(c=>c instanceof Date?iso(new Date(c.getTime()+432e5)):String(c)));
     }catch(e){return fail(e)}
   }else{
@@ -696,7 +741,7 @@ async function mailLoad(){
 function mailShow(){
   const d=S.mail,inv=m=>/rechnung|invoice|faktura|mahnung|zahlungserinnerung|betreibung/i.test(m.subject)||m.attachments.some(a=>/pdf/i.test(a.type+a.name));
   $('#mbox').innerHTML=`<div class="card"><h2>${esc(d.mailbox)} · ${d.total} E-Mails im Posteingang, die neuesten ${d.messages.length}</h2><div class="tw"><table><tr><th>Datum</th><th>Absender</th><th>Betreff</th><th>Anhänge</th></tr>
-  ${d.messages.map(m=>`<tr><td class="num sm">${m.date?new Date(m.date).toLocaleString('de-CH',{dateStyle:'short',timeStyle:'short'}):''}</td><td>${m.seen?'':'<b>'}${esc(m.from_name||m.from_address)}${m.seen?'':'</b>'}<div class="sm mut">${esc(m.from_address)}</div></td><td>${esc(m.subject)} ${inv(m)?'<span class="b zu_pruefen">mögliche Rechnung</span>':''}</td><td class="sm">${m.attachments.map(a=>esc(a.name)).join('<br>')}${m.attachments.some(a=>/pdf|jpe?g|png|csv/i.test(a.type+a.name))?`<br><button class="btn xs" onclick="mailTake(${+m.uid})">Ins Archiv</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="mut">Keine E-Mails.</td></tr>'}</table></div></div>`;
+  ${d.messages.map(m=>`<tr><td class="num sm">${m.date?new Date(m.date).toLocaleString('de-CH',{dateStyle:'short',timeStyle:'short'}):''}</td><td>${m.seen?'':'<b>'}${esc(m.from_name||m.from_address)}${m.seen?'':'</b>'}<div class="sm mut">${esc(m.from_address)}</div></td><td>${esc(m.subject)} ${(k=>k==='offerte'||k==='anfrage'?'<span class="b offen">'+KINDL[k]+'</span>':inv(m)?'<span class="b zu_pruefen">mögliche Rechnung</span>':'')(mailKind(m))}</td><td class="sm">${m.attachments.map(a=>esc(a.name)).join('<br>')}${m.attachments.some(a=>/pdf|jpe?g|png|csv/i.test(a.type+a.name))?`<br><button class="btn xs" onclick="mailTake(${+m.uid})">Ins Archiv</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="mut">Keine E-Mails.</td></tr>'}</table></div></div>`;
 }
 async function ensurePdf(){if(window.pdfjsLib)return;await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';s.onload=ok;s.onerror=()=>no(new Error('PDF-Modul konnte nicht geladen werden'));document.head.appendChild(s)});pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}
 function invGuess(lines){
@@ -705,6 +750,34 @@ function invGuess(lines){
   lines.forEach((l,i)=>{const t=l+' '+(lines[i+1]||'');if(K.test(l))for(const m of t.matchAll(A)){const n=num(m[1]||m[2]);if(!isNaN(n)&&(amt==null||n>amt))amt=n}
     if(!due){const m=t.match(/(zahlbar bis|fällig(?:keit)?(?: am| bis)?|zahlungsfrist(?: bis)?|bis spätestens|zahlungsziel)\D{0,20}(\d{1,2}\.\d{1,2}\.\d{2,4})/i);if(m)due=pdate(m[2])}});
   return{amt,due};
+}
+/* E-Mails einordnen: Offerten und neue Zusammenarbeiten sollen sichtbar werden, nicht nur Rechnungen */
+const MK={
+  rechnung:/rechnung|invoice|faktura|facture|mahnung|zahlungserinnerung|betreibung/i,
+  offerte:/offerte|\bangebot|quotation|\bquote\b|\bdevis\b|kostenvoranschlag|preisliste|konditionen|unverbindlich(?:e|es)? (?:angebot|offerte)/i,
+  anfrage:/zusammenarbeit|kooperation|partnerschaft|sponsoring|sponsor|booking|buchungsanfrage|\banfrage\b|reservation|reservierung|location (?:mieten|miete|buchen)|raum ?miete|eventlocation|event bei (?:euch|ihnen)|firmenanlass|firmenevent|privatanlass|geburtstag(?:sfeier|sparty)|auftritt|auftreten|\bdj\b|künstler|artist|collaboration|partnership|cooperation|influencer|promotion|veranstalt(?:en|ung) bei/i,
+  werbung:/newsletter|abmelden|unsubscribe|no-?reply|noreply|mailchimp|sendinblue|brevo|hubspot|linkedin|facebookmail|google\.com|apple\.com/i};
+function mailKind(m){
+  const head=(m.subject||'')+' '+(m.attachments||[]).map(a=>a.name).join(' '),all=head+' '+(m.snippet||''),from=(m.from_address||'')+' '+(m.from_name||'');
+  if(MK.rechnung.test(head))return 'rechnung';
+  if(MK.werbung.test(from)||/unsubscribe|abmelden|newsletter/i.test(m.snippet||''))return null;
+  if(MK.offerte.test(head)||(MK.offerte.test(m.snippet||'')&&!MK.anfrage.test(head)))return 'offerte';
+  if(MK.anfrage.test(all))return 'anfrage';
+  return null;
+}
+const KINDL={offerte:'Offerte',anfrage:'Anfrage / Zusammenarbeit',rechnung:'mögliche Rechnung'};
+async function mailLeads(msgs){
+  const log=[];
+  for(const m of msgs){
+    const k=mailKind(m);if(k!=='offerte'&&k!=='anfrage')continue;
+    const key='mail-'+m.uid+'-lead';if(S.records.some(r=>r.source_key===key))continue;
+    const from=m.from_name||m.from_address,when=m.date?iso(new Date(m.date)):today();
+    const r=await sb.from('lp_records').insert({source_key:key,category:'aufgabe',title:(k==='offerte'?'Offerte: ':'Anfrage/Zusammenarbeit: ')+from+' – '+(m.subject||'(ohne Betreff)').slice(0,90),status:'offen',priority:'mittel',responsible:'Arben',due_date:addDays(when,3),
+      notes:'Automatisch aus E-Mail erkannt ('+KINDL[k]+'). Von '+from+' <'+m.from_address+'> am '+fd(when)+'.\nAuszug: '+(m.snippet||'').slice(0,600)+'\nBitte prüfen und beantworten. Es wurde nichts beantwortet oder zugesagt.',details:{art:'mail_lead',mail_uid:m.uid,mail_kind:k,firma:from}}).select('*').single();
+    if(r.error){log.push('Hinweis für «'+m.subject+'»: '+r.error.message);continue}
+    S.records.push(r.data);log.push('Neue '+KINDL[k]+' von '+from+': «'+m.subject+'» – als Aufgabe gemeldet');
+  }
+  return log;
 }
 const mailDocId=(uid,name)=>'mail_'+uid+'_'+safe(name);
 const mailDone=m=>m.attachments.every(a=>{const tn=a.type+a.name;if(/pdf/i.test(tn))return S.docs.some(x=>x.library_file_id===mailDocId(m.uid,a.name)||(x.file_name===a.name&&/^mail_[0-9a-f-]{36}$/.test(x.library_file_id)));
@@ -744,6 +817,7 @@ async function autoMail(){
   const {data,error}=await sb.functions.invoke('lp-mail',{body:{limit:40}});if(error||!data||data.error)return;S.mail=data;
   const todo=data.messages.filter(m=>m.attachments.some(a=>/pdf/i.test(a.type+a.name)||(/csv/i.test(a.type+a.name)&&/^tagesabschluss/i.test(a.name)))&&!mailDone(m)).reverse(),log=[];
   for(const m of todo)log.push(...await mailTake(m.uid,true));
+  try{log.push(...await mailLeads(data.messages))}catch(e){console.warn(e)}
   const first=!S.autoAt,k=location.hash.slice(1)||'uebersicht',typing=/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName||'');
   S.autoLog=[...log,...(S.autoLog||[])].slice(0,30);S.autoAt=new Date();if(log.length){await load();toast(log.length+' Schritt(e) aus E-Mails automatisch erledigt');textPending(true)}
   if(!dlg.open&&!typing&&(first||log.length||k==='uebersicht'||k==='email'))route();

@@ -166,8 +166,9 @@ Deno.serve(async (req) => {
       const id = String(body.id ?? ""), value = num(body.amount), date = day(body.date);
       if (!id || !value || !date) return json({ error: "Rechnung, Betrag und Datum nötig" }, 400);
       const r = await B.call("POST", `/4.0/purchase/outgoing-payments`, {
-        bill_id: id, payment_type: "MANUAL" /* nur verbuchen, nie ausführen */, execution_date: date, amount: value, currency_code: body.currency || "CHF",
-        note: "Erfasst aus der Wochenzentrale" + (body.bank_tx ? " (Bankbuchung " + body.bank_tx + ")" : ""),
+        bill_id: id, payment_type: "MANUAL" /* nur verbuchen, nie ausführen */, execution_date: date, amount: value,
+        currency_code: body.currency || "CHF", exchange_rate: 1, is_salary_payment: false,
+        note: ("Wochenzentrale: bereits bezahlt am " + date).slice(0, 80),
       });
       await log("bexio_bill_paid", "bill:" + id, { value, date, bank_tx: body.bank_tx ?? null, bexio: r });
       return json({ ok: true, result: r });

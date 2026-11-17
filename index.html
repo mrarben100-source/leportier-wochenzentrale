@@ -140,10 +140,10 @@ sb.auth.onAuthStateChange(async ev=>{if(ev==='PASSWORD_RECOVERY'){const p=prompt
 
 async function load(){
   const q=[sb.from('lp_records').select('*').order('due_date',{nullsFirst:false}),sb.from('lp_recurring').select('*').order('next_due'),sb.from('lp_documents').select(DC).order('file_name'),
-    sb.from('lp_bank_tx').select('*').order('booking_date',{ascending:false}).limit(6000),sb.from('lp_bank_balance').select('*').order('as_of',{ascending:false}).limit(5),
+    sb.from('lp_bank_tx').select('*').order('booking_date',{ascending:false}).limit(6000),sb.from('lp_bank_balance').select('*').order('as_of',{ascending:false}).limit(12),
     sb.from('lp_changes').select('*').order('changed_at',{ascending:false}).limit(150)];
   const r=await Promise.all(q);const e=r.find(x=>x.error);if(e)fail(e.error);
-  [S.records,S.recurring,S.docs,S.tx,S.bal,S.changes]=r.map(x=>x.data||[]);
+  [S.records,S.recurring,S.docs,S.tx,S.bal,S.changes]=r.map(x=>x.data||[]);S.balAG=S.bal.filter(b=>String(b.source).startsWith('[AG]'));S.bal=S.bal.filter(b=>!String(b.source).startsWith('[AG]'));
   const mm=await sb.from('lp_members').select('user_id,role,display_name,email,requested_at');S.members=mm.data||[];
 }
 async function refresh(){await load();route()}
@@ -415,7 +415,7 @@ function vFin(){
   const recs=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category));
   M(`<h1>Finanzen und Bankabgleich</h1>
   <div class="bar"><b>Jahr:</b> <select id="gj"><option value="">Alle Jahre</option>${yrs.map(y=>`<option${f.jahr===y?' selected':''}>${y}</option>`).join('')}</select></div>
-  <div class="grid"><div class="card kpi"><div class="l">Kontostand Valiant</div><div class="v num">${b?chf(b.amount_chf):'–'}</div><div class="sm mut">${b?'Stand '+fd(b.as_of)+' · '+esc(b.source):''}</div><button class="btn xs sec" style="margin-top:8px" onclick="newBal()">Neuen Stand erfassen</button></div>
+  <div class="grid"><div class="card kpi"><div class="l">Kontostand Valiant</div><div class="v num">${b?chf(b.amount_chf):'–'}</div><div class="sm mut">${b?'Stand '+fd(b.as_of)+' · '+esc(b.source):''}${S.balAG?.[0]?'<br>Konto AG: '+chf(S.balAG[0].amount_chf)+' (Stand '+fd(S.balAG[0].as_of)+')':''}</div><button class="btn xs sec" style="margin-top:8px" onclick="newBal()">Neuen Stand erfassen</button></div>
   <div class="card kpi"><div class="l">Einnahmen ${f.jahr||'gesamt'} (ohne interne)</div><div class="v num" style="color:var(--grn)">${chf(inn)}</div></div>
   <div class="card kpi"><div class="l">Ausgaben ${f.jahr||'gesamt'} (ohne interne)</div><div class="v num" style="color:var(--red)">${chf(out)}</div></div>
   <div class="card kpi"><div class="l">Zu prüfen</div><div class="v">${S.tx.filter(t=>t.review_state==='zu_pruefen').length}</div><div class="sm mut">${S.tx.filter(t=>t.review_state==='duplikat').length} als Duplikat markiert</div></div></div>
@@ -474,7 +474,7 @@ async function importCsv(){
 async function saveTx(out,bal){
   const {data,error}=await sb.from('lp_bank_tx').upsert(out,{onConflict:'dedupe_key',ignoreDuplicates:true}).select('id,booking_date,description,amount_chf,record_id');
   if(error)return fail(error);
-  if(bal&&!S.bal.some(b=>b.as_of>bal.as_of||(b.as_of===bal.as_of&&+b.amount_chf===bal.amount_chf))){const r=await sb.from('lp_bank_balance').insert(bal);if(r.error)fail(r.error)}
+  if(bal&&!(String(bal.source).startsWith('[AG]')?S.balAG:S.bal).some(b=>b.as_of>bal.as_of||(b.as_of===bal.as_of&&+b.amount_chf===bal.amount_chf))){const r=await sb.from('lp_bank_balance').insert(bal);if(r.error)fail(r.error)}
   const hit=await autoMatch(data||[]);
   toast((data?.length||0)+' neu importiert, '+(out.length-(data?.length||0))+' bereits vorhanden'+(hit.length?', '+hit.length+' Forderung(en) als bezahlt erkannt':''));await refresh();
   if(hit.length)alert('Automatisch als bezahlt erkannt (gleicher Betrag und passender Empfänger):\n\n'+hit.join('\n')+'\n\nEs wurde keine Zahlung ausgelöst. Alles andere bleibt «Zu prüfen».');
@@ -549,19 +549,20 @@ async function importPdf(file){
     if(!window.pdfjsLib){await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';s.onload=ok;s.onerror=()=>no(new Error('PDF-Modul konnte nicht geladen werden'));document.head.appendChild(s)});
       pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'}
     toast('PDF wird gelesen…');
-    const R=parseValiant(await pdfLines(await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise));
+    const L=await pdfLines(await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise),R=parseValiant(L),ag=L.some(l=>/PMH Prime|50\.843\.927/i.test(typeof l==='string'?l:JSON.stringify(l)));
+    if(ag)R.rows.forEach(r=>r.notes=['[AG] Konto 50.843.927.140.0, PMH Prime Management +',r.notes].filter(Boolean).join(' · '));
     if(!S.docs.some(d=>d.file_name===file.name&&+d.size_bytes===file.size&&d.storage_path)){const p=spath('Bankauszüge',file.name),u=await sb.storage.from('lp-dokumente').upload(p,file,{contentType:'application/pdf'});
       if(u.error)fail(u.error);else{const {error}=await sb.from('lp_documents').insert({library_file_id:'upload_'+crypto.randomUUID(),file_name:file.name,category:'Bankauszüge',state:'in_supabase',storage_path:p,doc_date:R.endDate||null,modified_on:today(),size_bytes:file.size});if(error)fail(error)}}
     if(!R.rows.length)return toast('Im PDF wurden keine Buchungen erkannt. Die Datei liegt im Archiv; bitte an Claude senden.',1);
     R.rows.forEach(r=>r.source_file=file.name);
     const have=new Set(S.tx.map(t=>t.dedupe_key)),neu=R.rows.filter(r=>!have.has(r.dedupe_key)).length;
-    dlg.innerHTML=`<form method="dialog" id="pf"><h2>Kontoauszug ${fd(R.startDate)} – ${fd(R.endDate)}</h2>
+    dlg.innerHTML=`<form method="dialog" id="pf"><h2>Kontoauszug ${ag?'AG (PMH Prime Management +) ':'GmbH '}${fd(R.startDate)} – ${fd(R.endDate)}</h2>
     <div class="note ${R.ok?'':'red'}">${R.ok?(R.einzel?'Kontrolle bestanden: Jede Buchung passt zum laufenden Saldo, und der Schlusssaldo des Auszugs wird erreicht.':'Kontrolle bestanden: Die gelesenen Buchungen ergeben genau die Summen und den Schlusssaldo des Auszugs.'):'<b>Kontrolle nicht bestanden.</b> Die gelesenen Summen weichen vom Auszug ab. Bitte nicht importieren und die Datei an Claude senden.'}</div>
     <table><tr><th></th><th class="r">Laut Auszug</th><th class="r">Gelesen</th></tr><tr><td>Belastungen</td><td class="num r">${R.einzel?'nicht ausgewiesen':chf(R.deb)}</td><td class="num r">${chf(R.sumDeb)}</td></tr><tr><td>Gutschriften</td><td class="num r">${R.einzel?'nicht ausgewiesen':chf(R.cre)}</td><td class="num r">${chf(R.sumCre)}</td></tr><tr><td>Schlusssaldo per ${fd(R.endDate)}</td><td class="num r">${chf(R.end)}</td><td></td></tr></table>
     <p class="sm">${R.rows.length} Buchungen (Sammelzahlungen sind in Einzelzahlungen aufgeteilt), davon <b>${neu} neu</b>. Alle werden als «Zu prüfen» eingetragen.</p>${R.warn.length?`<div class="note red sm">${R.warn.map(esc).join('<br>')}</div>`:''}
     <div class="tw" style="max-height:38vh;overflow:auto"><table>${R.rows.map(r=>`<tr><td class="num sm">${fd(r.booking_date)}</td><td class="sm">${esc(r.description)}<div class="mut">${esc(r.category)}</div></td><td class="num r sm" style="color:${r.amount_chf<0?'var(--red)':'var(--grn)'}">${chf(r.amount_chf)}</td></tr>`).join('')}</table></div>
     <div class="bar" style="justify-content:flex-end"><button class="btn sec" value="x">Abbrechen</button><button class="btn" value="s">${neu} Buchungen importieren</button></div></form>`;
-    $('#pf').onsubmit=async e=>{if(e.submitter?.value!=='s')return;e.preventDefault();dlg.close();await saveTx(R.rows,R.end!=null?{as_of:R.endDate,amount_chf:R.end,source:'Valiant-Kontoauszug '+file.name}:null)};
+    $('#pf').onsubmit=async e=>{if(e.submitter?.value!=='s')return;e.preventDefault();dlg.close();await saveTx(R.rows,R.end!=null?{as_of:R.endDate,amount_chf:R.end,source:(ag?'[AG] ':'')+'Valiant-Kontoauszug '+file.name}:null)};
     dlg.showModal();
   }catch(e){fail(e)}
 }

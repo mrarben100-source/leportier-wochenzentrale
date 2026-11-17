@@ -124,7 +124,7 @@ async function boot(){
   const {data:m}=await sb.from('lp_members').select('role,display_name').eq('user_id',S.user.id).maybeSingle();
   if(!m||m.role==='pending')return pendingView(m);
   S.role=m.role;S.name=m.display_name||S.user.email;
-  await load();shell();route();live();autoMail();setInterval(autoMail,120000);calLoad(true);setInterval(()=>calLoad(true),900000);
+  await load();shell();route();live();autoMail();autoBexio();setInterval(autoBexio,1800000);setInterval(autoMail,120000);calLoad(true);setInterval(()=>calLoad(true),900000);
 }
 function pendingView(m){
   root.innerHTML=`<div class="login"><div class="card"><h1>Zugang noch nicht freigeschaltet</h1><p>Angemeldet als <b>${esc(S.user.email)}</b>.</p>
@@ -161,11 +161,12 @@ async function load(){
   const r=await Promise.all(q);const e=r.find(x=>x.error);if(e)fail(e.error);
   [S.records,S.recurring,S.docs,S.tx,S.bal,S.changes]=r.map(x=>x.data||[]);S.balAG=S.bal.filter(b=>String(b.source).startsWith('[AG]'));S.bal=S.bal.filter(b=>!String(b.source).startsWith('[AG]'));
   const mm=await sb.from('lp_members').select('user_id,role,display_name,email,requested_at');S.members=mm.data||[];
+  if(S.role==='admin'){const bx=await sb.from('lp_bexio').select('kind,bexio_id,data,synced_at').limit(10000);S.bx=bx.data||[]}
 }
 async function refresh(){await load();route()}
 
 /* ---------- Rahmen ---------- */
-const NAV=[['uebersicht','Übersicht'],['aufgaben','Aufgaben'],['rechnungen','Rechnungen'],['finanzen','Finanzen'],['events','Events'],['lieferanten','Lieferanten'],['bestellungen','Bestellungen'],['personal','Personal'],['dokumente','Dokumente'],['kalender','Kalender'],['email','E-Mail'],['protokoll','Protokoll']];
+const NAV=[['uebersicht','Übersicht'],['aufgaben','Aufgaben'],['rechnungen','Rechnungen'],['finanzen','Finanzen'],['events','Events'],['lieferanten','Lieferanten'],['bestellungen','Bestellungen'],['personal','Personal'],['dokumente','Dokumente'],['kalender','Kalender'],['email','E-Mail'],['bexio','Bexio'],['protokoll','Protokoll']];
 function shell(){
   root.innerHTML=`<div id="app"><nav><div class="brand"><img src="icon-180.png" alt=""><div>Le Portier N°35<span>Wochenzentrale</span></div></div>${NAV.map(([k,l])=>`<a href="#${k}" data-k="${k}">${l}</a>`).join('')}
   <div class="who">${esc(S.name)} · ${esc({admin:'Admin',editor:'Bearbeiter',viewer:'Nur lesen'}[S.role])}<br><button onclick="logout()">Abmelden</button></div></nav><main id="main"></main></div>`;
@@ -173,7 +174,7 @@ function shell(){
 window.onhashchange=()=>S.role&&route();
 function route(){
   const k=(location.hash.slice(1)||'uebersicht');document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.k===k));
-  ({uebersicht:vHome,aufgaben:()=>vList('aufgaben'),rechnungen:vBills,finanzen:vFin,events:()=>vList('events'),lieferanten:()=>vList('lieferanten'),bestellungen:vOrders,personal:()=>vList('personal'),dokumente:vDocs,kalender:vCal,email:vMail,protokoll:vLog}[k]||vHome)();
+  ({uebersicht:vHome,aufgaben:()=>vList('aufgaben'),rechnungen:vBills,finanzen:vFin,events:()=>vList('events'),lieferanten:()=>vList('lieferanten'),bestellungen:vOrders,personal:()=>vList('personal'),dokumente:vDocs,kalender:vCal,email:vMail,bexio:vBexio,protokoll:vLog}[k]||vHome)();
 }
 const M=h=>$('#main').innerHTML=h;
 /* Tabellen fürs Handy vorbereiten: jede Zelle bekommt den Spaltennamen als data-label.
@@ -367,7 +368,9 @@ function editRec(id,cat,pre){
 }
 
 /* ---------- Rechnungen ---------- */
-const payee=x=>{const d=x.description||'',p=d.split(' · ')[1];if(p)return p.trim();if(/^(Vergütung|Übertrag|Zahlung|Bancomat|Geldautomat|Dauerauftrag|Einzahlung|Kartengeb|Setgeb|Gebühr|Kontoführ|Saldo der|Tankomat|Gutschrift|Zins|Spesen)/i.test(d))return (d.match(/^Zahlung - (.+?) - \d\d\.\d\d\./)||[])[1]?.replace(/\s*\*.*$/,'').trim()||'';return d.split(',')[0].trim()};
+/* Empfänger, die in der Bank unter anderem Namen erscheinen */
+const ALIAS=[[/leons böden/i,'Gezim (Leons Böden)']];
+const payee=x=>{const a=ALIAS.find(([r])=>r.test(x.description||''));if(a)return a[1];const d=x.description||'',p=d.split(' · ')[1];if(p)return p.trim();if(/^(Vergütung|Übertrag|Zahlung|Bancomat|Geldautomat|Dauerauftrag|Einzahlung|Kartengeb|Setgeb|Gebühr|Kontoführ|Saldo der|Tankomat|Gutschrift|Zins|Spesen)/i.test(d))return (d.match(/^Zahlung - (.+?) - \d\d\.\d\d\./)||[])[1]?.replace(/\s*\*.*$/,'').trim()||'';return d.split(',')[0].trim()};
 const firma=r=>(r.details?.firma||r.title.replace(/^Rechnung\s+/i,'').replace(/-Rechnung$/i,'').split(/\s+[–-]\s+/)[0]).trim();
 const billState=r=>r.status==='erledigt'?'bezahlt':r.status==='zu_pruefen'?'pruefen':'offen';
 function vBills(){
@@ -388,7 +391,7 @@ function vBills(){
   <div class="bar">${tab('offen','Offen')}${tab('pruefen','Zu prüfen')}${tab('bezahlt','Bezahlt')}${tab('alle','Alle')}<input id="bq" placeholder="Firma suchen…" value="${esc(f.q)}" style="flex:1">${canEdit()?`<button class="btn" onclick="editRec(null,'zahlung')">+ Neue Rechnung</button>`:''}</div>
   ${firms.map(([n,rs])=>{const o=rs.filter(r=>billState(r)!=='bezahlt'),os=o.reduce((s,r)=>s+(+r.amount_chf||0),0);return `<div class="card" style="margin-bottom:10px"><h2>${esc(n)} ${o.length?`<span class="b ${o.some(r=>billState(r)==='offen')?'p1':'zu_pruefen'}">${o.length} offen${os?' · '+chf(os):''}</span>`:'<span class="b erledigt">alles bezahlt</span>'}</h2>
    <div class="tw"><table><tr><th>Posten</th><th>Fällig</th><th class="r">Betrag</th><th class="r">Laut Bank bezahlt</th><th class="r">Rest</th><th>Status</th><th>Beleg</th><th></th></tr>
-   ${rs.map(r=>{const p=paidFor(r.id),docs=S.docs.filter(x=>x.record_id===r.id).length,done=billState(r)==='bezahlt',rest=r.amount_chf==null?null:done?0:Math.max(r.amount_chf-p,0);return `<tr class="click" onclick="editRec('${r.id}')"><td>${esc(r.title)}<div class="sm mut">${esc((r.notes||'').slice(0,140))}</div></td><td class="num" style="${!done&&r.due_date&&r.due_date<t?'color:var(--red)':''}">${fd(r.due_date)}</td><td class="num r">${chf(r.amount_chf)}</td><td class="num r">${p?chf(p):'–'}</td><td class="num r"><b>${chf(rest)}</b></td><td>${sbadge(r.status)}${r.confirmed_on&&done?'<div class="sm mut">'+fd(r.confirmed_on)+'</div>':''}</td><td class="sm">${docs?docs+' Beleg'+(docs>1?'e':''):'<span style="color:var(--red)">kein Beleg</span>'}</td><td>${!done&&admin()?`<button class="btn xs sec" onclick="event.stopPropagation();billPaid('${r.id}')">Als bezahlt markieren</button>`:''}</td></tr>`}).join('')}</table></div></div>`}).join('')||'<div class="card"><p class="mut">Keine Posten in dieser Ansicht.</p></div>'}
+   ${rs.map(r=>{const p=paidFor(r.id),docs=S.docs.filter(x=>x.record_id===r.id).length,done=billState(r)==='bezahlt',rest=r.amount_chf==null?null:done?0:Math.max(r.amount_chf-p,0);return `<tr class="click" onclick="editRec('${r.id}')"><td>${esc(r.title)}${r.details?.bexio?' <span class="b g">Bexio</span>':''}<div class="sm mut">${esc((r.notes||'').slice(0,140))}</div></td><td class="num" style="${!done&&r.due_date&&r.due_date<t?'color:var(--red)':''}">${fd(r.due_date)}</td><td class="num r">${chf(r.amount_chf)}</td><td class="num r">${p?chf(p):'–'}</td><td class="num r"><b>${chf(rest)}</b></td><td>${sbadge(r.status)}${r.confirmed_on&&done?'<div class="sm mut">'+fd(r.confirmed_on)+'</div>':''}</td><td class="sm">${docs?docs+' Beleg'+(docs>1?'e':''):'<span style="color:var(--red)">kein Beleg</span>'}</td><td>${!done&&admin()?`<button class="btn xs sec" onclick="event.stopPropagation();billPaid('${r.id}')">Als bezahlt markieren</button>`:''}</td></tr>`}).join('')}</table></div></div>`}).join('')||'<div class="card"><p class="mut">Keine Posten in dieser Ansicht.</p></div>'}
   ${admin()?`<div class="card" style="margin-top:14px"><h2>Wohin laut Bank Geld geflossen ist</h2><p class="sm mut">Ausgänge vom GmbH-Konto nach Empfänger, ohne interne Transfers. Bargeldbezüge, Gebühren und Überträge ohne Empfängerangabe sind nicht enthalten.</p><div class="tw" style="max-height:50vh;overflow:auto"><table><tr><th>Empfänger</th><th class="r">Zahlungen</th><th class="r">Total bezahlt</th><th>Letzte Zahlung</th></tr>${payees.map(([n,p])=>`<tr><td>${esc(n)}</td><td class="r">${p.n}</td><td class="num r">${chf(p.s)}</td><td class="num">${fd(p.last)}</td></tr>`).join('')||'<tr><td colspan="4" class="mut">Keine Zahlungen gefunden.</td></tr>'}</table></div></div>`:''}`);
   $('#bq').onchange=e=>{f.q=e.target.value;vBills()};
 }
@@ -850,6 +853,79 @@ async function autoMail(){
 }
 const autoBox=()=>S.autoAt?`<div class="note${S.autoLog.length?'':' '}"><b>Posteingang zuletzt geprüft um ${S.autoAt.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'})} Uhr (automatisch alle 2 Minuten).</b> ${S.autoLog.length?'Seit dem Öffnen erledigt:'+'<ul style="margin:6px 0 0;padding-left:18px">'+S.autoLog.map(l=>'<li>'+esc(l)+'</li>').join('')+'</ul>':'Keine neuen Anhänge.'}</div>`:(admin()?'<p class="mut sm">E-Mail-Posteingang wird geprüft…</p>':'');
 const mailRecent=()=>{const a=S.docs.filter(d=>/^mail_/.test(d.library_file_id)).sort((x,y)=>(y.created_at||'').localeCompare(x.created_at||'')).slice(0,6);return a.length?'<h3 style="margin-top:10px">Zuletzt aus E-Mails archiviert</h3>'+a.map(d=>`<div class="sm" style="padding:4px 0;border-bottom:1px solid var(--line)">${fd((d.created_at||'').slice(0,10))} · ${esc(d.file_name)} <span class="mut">(${esc(d.category)})</span></div>`).join(''):''};
+/* ---------- Bexio ---------- */
+const BXST={7:'Entwurf',8:'Offen',9:'Bezahlt',16:'Teilbezahlt',19:'Storniert',31:'Offen'};
+const bxList=k=>(S.bx||[]).filter(x=>x.kind===k).map(x=>x.data);
+const bxContact=id=>{const c=(S.bx||[]).find(x=>x.kind==='contact'&&x.bexio_id===String(id))?.data;return c?[c.name_1,c.name_2].filter(Boolean).join(' '):''};
+const bxInvOpen=i=>![9,19,7].includes(+i.kb_item_status_id);
+const bxBillOpen=b=>!/paid|bezahlt|cancel|storn|draft|entwurf/i.test(b.status||'')||/partial|teil/i.test(b.status||'');
+const bxAmt=b=>[b.amount_man,b.amount_calc,b.total_gross,b.total,b.amount].map(Number).find(n=>!isNaN(n)&&n!==0)??null;
+async function bexioCall(body){
+  const {data,error}=await sb.functions.invoke('lp-bexio',{body});let d=data;
+  if(error){try{d=await error.context.json()}catch(_){d={error:error.message}}}
+  return d||{error:'keine Antwort'};
+}
+async function autoBexio(manual){
+  if(!admin()||S.bxBusy||document.hidden)return;S.bxBusy=true;
+  try{const d=await bexioCall({action:'sync'});S.bxRes=d;
+    if(d.error){if(manual)toast(d.error==='not_configured'?'Bexio ist noch nicht verbunden':'Bexio: '+d.error,1);return}
+    const bx=await sb.from('lp_bexio').select('kind,bexio_id,data,synced_at').limit(10000);S.bx=bx.data||[];
+    if(d.bills&&(d.bills.neu||d.bills.aktualisiert||d.bills.verknuepft)){await load();toast('Bexio: '+d.bills.neu+' neue, '+d.bills.aktualisiert+' aktualisierte Rechnung(en)')}
+    else if(manual)toast('Bexio abgeglichen');
+    if(location.hash==='#bexio'||manual)route();
+  }finally{S.bxBusy=false}
+}
+function vBexio(){
+  if(!admin())return M('<h1>Bexio</h1><div class="note">Nur für Admin sichtbar.</div>');
+  const f=S.f.bx??={t:'inv',q:''},q=f.q.toLowerCase(),r=S.bxRes,last=(S.bx||[]).reduce((a,x)=>x.synced_at>a?x.synced_at:a,'');
+  if(r?.error==='not_configured'||(!S.bx?.length&&!r))return M(`<h1>Bexio</h1><div class="note"><b>Bexio ist noch nicht verbunden.</b> So geht es (einmalig, ca. 5 Minuten):<ol style="margin:8px 0 0;padding-left:20px">
+    <li>Auf <b>developer.bexio.com</b> mit dem normalen Bexio-Login anmelden → <b>Personal Access Tokens</b> → neuen Schlüssel erstellen.</li>
+    <li>Im Supabase-Projekt «Le Portier Wochenzentrale» unter <b>Edge Functions → Secrets</b> einen Eintrag <b>BEXIO_TOKEN</b> mit diesem Schlüssel anlegen. Den Schlüssel nirgends sonst einfügen.</li>
+    <li>Hier auf «Jetzt abgleichen» klicken.</li></ol></div><button class="btn" onclick="autoBexio(true)">Jetzt abgleichen</button>`);
+  const tab=(k,l,n)=>`<button class="btn ${f.t===k?'':'sec'}" onclick="S.f.bx.t='${k}';vBexio()">${l} (${n})</button>`;
+  const inv=bxList('invoice'),bills=bxList('bill'),con=bxList('contact'),acc=bxList('account'),bank=bxList('bank_account');
+  const m=s=>!q||String(s).toLowerCase().includes(q);
+  let body='';
+  if(f.t==='inv'){const a=inv.filter(i=>m((i.document_nr||'')+' '+bxContact(i.contact_id)+' '+(i.title||''))).sort((x,y)=>(y.is_valid_from||'').localeCompare(x.is_valid_from||''));
+    body=`<table><tr><th>Nr.</th><th>Kunde</th><th>Datum</th><th>Fällig</th><th class="r">Betrag</th><th>Status</th><th></th></tr>${a.slice(0,300).map(i=>`<tr><td class="num">${esc(i.document_nr||i.id)}</td><td>${esc(bxContact(i.contact_id)||'–')}<div class="sm mut">${esc(i.title||'')}</div></td><td class="num">${fd(i.is_valid_from)}</td><td class="num" style="${bxInvOpen(i)&&i.is_valid_to<today()?'color:var(--red)':''}">${fd(i.is_valid_to)}</td><td class="num r">${chf(i.total)}</td><td><span class="b ${bxInvOpen(i)?'offen':'erledigt'}">${esc(BXST[i.kb_item_status_id]||i.kb_item_status_id)}</span></td><td class="act">${bxInvOpen(i)?`<button class="btn xs sec" onclick="bxPay('invoice','${i.id}')">Zahlung buchen</button>`:''}</td></tr>`).join('')||'<tr><td colspan="7" class="mut">Keine Kundenrechnungen.</td></tr>'}</table>`}
+  if(f.t==='bill'){const a=bills.filter(b=>m((b.document_no||'')+' '+(b.lastname_company||'')+' '+bxContact(b.contact_id||b.supplier_id)+' '+(b.title||''))).sort((x,y)=>(y.bill_date||'').localeCompare(x.bill_date||''));
+    body=`<table><tr><th>Nr.</th><th>Lieferant</th><th>Datum</th><th>Fällig</th><th class="r">Betrag</th><th>Status</th><th></th></tr>${a.slice(0,300).map(b=>`<tr><td class="num">${esc(b.document_no||b.vendor_ref||b.id)}</td><td>${esc(b.lastname_company||bxContact(b.contact_id||b.supplier_id)||'–')}<div class="sm mut">${esc(b.title||'')}</div></td><td class="num">${fd(b.bill_date)}</td><td class="num">${fd(b.due_date)}</td><td class="num r">${chf(bxAmt(b))}</td><td><span class="b ${bxBillOpen(b)?'offen':'erledigt'}">${esc(b.status||'')}</span></td><td class="act">${bxBillOpen(b)?`<button class="btn xs sec" onclick="bxPay('bill','${b.id}')">Zahlung erfassen</button>`:''}</td></tr>`).join('')||`<tr><td colspan="7" class="mut">${r?.warnings?.some(w=>/^bill/.test(w))?'Lieferantenrechnungen nicht verfügbar – in Bexio wird dafür das neue Einkaufs-Modul gebraucht.':'Keine Lieferantenrechnungen.'}</td></tr>`}</table>`}
+  if(f.t==='con'){const a=con.filter(c=>m([c.name_1,c.name_2,c.mail,c.city].join(' '))).sort((x,y)=>(x.name_1||'').localeCompare(y.name_1||''));
+    body=`<table><tr><th>Name</th><th>Ort</th><th>E-Mail</th><th>Telefon</th></tr>${a.slice(0,400).map(c=>`<tr><td>${esc([c.name_1,c.name_2].filter(Boolean).join(' '))}</td><td>${esc([c.postcode,c.city].filter(Boolean).join(' '))}</td><td>${c.mail?`<a href="mailto:${esc(c.mail)}">${esc(c.mail)}</a>`:''}</td><td>${esc(c.phone_fixed||c.phone_mobile||'')}</td></tr>`).join('')}</table>
+    <div class="bar"><button class="btn sec" onclick="bxContactNew()">+ Kontakt in Bexio anlegen</button></div>`}
+  if(f.t==='acc'){const a=acc.filter(c=>m((c.account_no||'')+' '+(c.name||''))).sort((x,y)=>String(x.account_no).localeCompare(String(y.account_no),undefined,{numeric:true}));
+    body=`${bank.length?`<h3>Bankkonten in Bexio</h3><table><tr><th>Name</th><th>IBAN</th><th>Währung</th><th>Konto-Nr.</th></tr>${bank.map(b=>`<tr><td>${esc(b.name||b.bank_name||'')}</td><td class="num">${esc(b.iban_nr||b.iban||'')}</td><td>${esc(b.currency_code||b.currency_id||'')}</td><td>${esc(b.account_no||b.account_id||'')}</td></tr>`).join('')}</table>`:''}
+    <h3 style="margin-top:12px">Kontenplan</h3><table><tr><th>Nr.</th><th>Konto</th><th>Typ</th><th>Aktiv</th></tr>${a.map(c=>`<tr><td class="num">${esc(c.account_no)}</td><td>${esc(c.name)}</td><td>${esc(c.account_type??'')}</td><td>${c.is_active===false?'nein':'ja'}</td></tr>`).join('')}</table>
+    <p class="sm mut">Kontostände liefert die Bexio-Schnittstelle nicht direkt; massgebend bleibt der Kontostand aus dem Valiant-Auszug unter «Finanzen».</p>`}
+  const oi=inv.filter(bxInvOpen),ob=bills.filter(bxBillOpen);
+  M(`<h1>Bexio</h1><p class="mut">Lesekopie aus Bexio${last?', zuletzt abgeglichen '+new Date(last).toLocaleString('de-CH',{dateStyle:'short',timeStyle:'short'}):''}. Abgleich automatisch alle 30 Minuten. Zahlungen werden nur auf Klick und nach Bestätigung in Bexio gebucht; in Bexio wird nie etwas gelöscht.</p>
+  ${r?.warnings?.length?`<div class="note">${r.warnings.map(esc).join('<br>')}</div>`:''}
+  <div class="grid"><div class="card kpi"><div class="l">Offene Kundenrechnungen</div><div class="v num" style="color:var(--grn)">${chf(oi.reduce((s,i)=>s+ +i.total||0,0))}</div><div class="sm mut">${oi.length} Rechnungen</div></div>
+  <div class="card kpi"><div class="l">Offene Lieferantenrechnungen</div><div class="v num" style="color:var(--red)">${chf(ob.reduce((s,b)=>s+(bxAmt(b)||0),0))}</div><div class="sm mut">${ob.length} Rechnungen</div></div>
+  <div class="card kpi"><div class="l">Kontakte</div><div class="v">${con.length}</div></div></div>
+  <div class="bar">${tab('inv','Kundenrechnungen',inv.length)}${tab('bill','Lieferantenrechnungen',bills.length)}${tab('con','Kontakte',con.length)}${tab('acc','Konten',acc.length)}<input id="bxq" placeholder="Suchen…" value="${esc(f.q)}" style="flex:1"><button class="btn" onclick="autoBexio(true)">Jetzt abgleichen</button></div>
+  <div class="card"><div class="tw">${body}</div></div>`);
+  $('#bxq').onchange=e=>{f.q=e.target.value;vBexio()};
+}
+async function bxPay(kind,id){
+  const it=bxList(kind).find(x=>String(x.id)===String(id));if(!it)return;
+  const amt=kind==='invoice'?+it.total:bxAmt(it),name=kind==='invoice'?bxContact(it.contact_id):(it.lastname_company||bxContact(it.contact_id||it.supplier_id));
+  const sign=kind==='invoice'?1:-1,cand=S.tx.filter(t=>t.review_state!=='duplikat'&&Math.abs(+t.amount_chf-sign*amt)<=0.05).sort((a,b)=>b.booking_date.localeCompare(a.booking_date)).slice(0,6);
+  let pick=null;
+  if(cand.length){const s=prompt('Passende Bankbuchung wählen (Nummer eingeben, leer = ohne Bankbuchung):\n\n'+cand.map((t,i)=>(i+1)+') '+fd(t.booking_date)+'  '+chf(t.amount_chf)+'  '+(t.description||'').slice(0,60)).join('\n'),'1');if(s===null)return;pick=cand[+s-1]||null}
+  const date=pick?.booking_date||prompt('Zahlungsdatum (JJJJ-MM-TT):',today());if(!date)return;
+  const val=pick?Math.abs(+pick.amount_chf):+String(prompt('Betrag CHF:',amt)||'').replace(',','.');if(!val)return;
+  if(!confirm((kind==='invoice'?'Zahlung auf Kundenrechnung ':'Zahlung zu Lieferantenrechnung ')+(it.document_nr||it.document_no||id)+' ('+name+')\n'+chf(val)+' am '+fd(date)+'\n\nwird jetzt IN BEXIO gebucht. Fortfahren?'))return;
+  const d=await bexioCall({action:kind==='invoice'?'invoice_paid':'bill_paid',id,amount:val,date,bank_tx:pick?.id||null});
+  if(d.error)return toast('Bexio: '+d.error,1);
+  if(pick)await txSet(pick.id,'notes',((pick.notes||'')+' In Bexio gebucht ('+(it.document_nr||it.document_no||id)+') am '+fd(today())+'.').trim());
+  toast('In Bexio gebucht');autoBexio(true);
+}
+async function bxContactNew(){
+  const name=prompt('Name (Firma oder Person):');if(!name)return;const mail=prompt('E-Mail (optional):')||'';
+  if(!confirm('Kontakt «'+name+'» in Bexio anlegen?'))return;
+  const d=await bexioCall({action:'contact_create',name,mail});if(d.error)return toast('Bexio: '+d.error,1);toast('Kontakt in Bexio angelegt');autoBexio(true);
+}
 /* ---------- Stempeluhr / Lohn ---------- */
 const MON=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 const LOHN={premium:['alicia','tuana'],satzPremium:20.44,satz:18.77,ferien:10.65,feiertag:2.27,dm:8.33,ahv:5.30,alv:1.10,ktg:1.13};

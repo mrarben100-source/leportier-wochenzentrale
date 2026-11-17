@@ -860,8 +860,11 @@ const BXST={7:'Entwurf',8:'Offen',9:'Bezahlt',16:'Teilbezahlt',19:'Storniert',31
 const bxList=k=>(S.bx||[]).filter(x=>x.kind===k).map(x=>x.data);
 const bxContact=id=>{const c=(S.bx||[]).find(x=>x.kind==='contact'&&x.bexio_id===String(id))?.data;return c?[c.name_1,c.name_2].filter(Boolean).join(' '):''};
 const bxInvOpen=i=>![9,19,7].includes(+i.kb_item_status_id);
-const bxBillOpen=b=>!/paid|bezahlt|cancel|storn|draft|entwurf/i.test(b.status||'')||/partial|teil/i.test(b.status||'');
-const bxAmt=b=>[b.amount_man,b.amount_calc,b.total_gross,b.total,b.amount].map(Number).find(n=>!isNaN(n)&&n!==0)??null;
+const bxBillOpen=b=>/^(booked|created|partially_paid|open|overdue)$/i.test(b.status||'')||(!/paid|bezahlt|cancel|storn|draft|entwurf/i.test(b.status||'')||/partial|teil/i.test(b.status||''));
+const bxAmt=b=>[b.gross,b.amount_man,b.amount_calc,b.total_gross,b.total,b.amount].map(Number).find(n=>!isNaN(n)&&n!==0)??null;
+const bxOpen=b=>b.pending_amount!=null&&!isNaN(+b.pending_amount)?+b.pending_amount:bxAmt(b);
+const bxNorm=s=>{s=String(s||'');const a=ALIAS.find(([r])=>r.test(s));if(a)return a[1].toLowerCase();return s.toLowerCase().replace(/\b(gmbh|ag|sa|sàrl|in|und|&)\b/g,' ').replace(/[^a-zäöüéèà0-9 ]/g,' ').replace(/\s+/g,' ').trim()};
+const bxSame=(a,b)=>{const y=bxNorm(b).split(' ');return bxNorm(a).split(' ').filter(w=>w.length>2).some(w=>y.some(v=>v===w||(w.length>4&&(v.startsWith(w)||w.startsWith(v))&&v.length>3)))};
 async function bexioCall(body){
   const {data,error}=await sb.functions.invoke('lp-bexio',{body});let d=data;
   if(error){try{d=await error.context.json()}catch(_){d={error:error.message}}}
@@ -901,11 +904,7 @@ function vBexio(){
     body=`<table><tr><th>Datei</th><th>Hochgeladen</th><th class="r">Grösse</th><th>Archiv</th></tr>${a.slice(0,300).map(x=>{const doc=S.docs.find(d=>d.library_file_id==='bexio_file_'+x.id),rec=doc?.record_id&&S.records.find(r=>r.id===doc.record_id);return `<tr><td>${esc(x.name||x.id)}${x.extension&&!String(x.name||'').includes('.')?'.'+esc(x.extension):''}</td><td class="num">${fd(String(x.created_at||'').slice(0,10))}</td><td class="num r">${x.size_in_bytes?Math.round(x.size_in_bytes/1024)+' KB':''}</td><td class="act">${doc?`<span class="b erledigt">im Archiv</span>${rec?' <a href="#rechnungen" onclick="editRec(\''+rec.id+'\');return false">'+esc(rec.title)+'</a>':''}`:`<button class="btn xs sec" onclick="bxArchive('file','${x.id}')">Ins Archiv</button>`}</td></tr>`}).join('')||'<tr><td colspan="4" class="mut">Keine Belege in Bexio gefunden.</td></tr>'}</table>
     <div class="bar"><button class="btn" onclick="bxArchiveAll()">Alle Belege ab 2025 ins Archiv (${files.filter(x=>String(x.created_at||'')>='2025'&&!S.docs.some(d=>d.library_file_id==='bexio_file_'+x.id)).length} offen)</button></div>
     <p class="sm mut">Neue Belege ab 2025 werden beim Abgleich automatisch ins Archiv übernommen (je 20 pro Durchlauf) (Kategorie Lieferantenrechnungen), gelesen und mit der passenden Rechnung verknüpft – sonst als Entwurf «Zu prüfen» erfasst.</p>`}
-  if(f.t==='diff'){body=diffs.length?`<table><tr><th>Eintrag</th><th>Unterschied</th><th>Angleichen</th></tr>${diffs.map((x,i)=>`<tr><td><a href="#" onclick="editRec('${x.r.id}');return false">${esc(x.r.title)}</a></td><td>${esc(x.txt)}</td><td class="act"><div class="bar" style="margin:0">${
-      x.typ==='paid_wz'?`<button class="btn xs" onclick="bxFix(${i})">In Bexio als bezahlt verbuchen</button>`:
-      x.typ==='paid_bx'?`<button class="btn xs" onclick="bxFix(${i})">In Wochenzentrale erledigen</button>`:
-      x.typ==='contact'?`<button class="btn xs sec" onclick="bxFix(${i})">Kontakt in Bexio anlegen</button>`:
-      `<button class="btn xs sec" onclick="bxFix(${i},'bx')">Bexio-Wert übernehmen</button><button class="btn xs sec" onclick="bxFix(${i},'wz')">Wochenzentrale gilt</button>`}</div></td></tr>`).join('')}</table>`:'<p class="mut">Keine Unterschiede – Wochenzentrale und Bexio stimmen überein.</p>'}
+  if(f.t==='diff'){body=diffs.length?`<table><tr><th>Eintrag</th><th>Unterschied</th><th>Angleichen</th></tr>${diffs.map((x,i)=>`<tr><td>${x.r?`<a href="#" onclick="editRec('${x.r.id}');return false">${esc(x.r.title)}</a>`:esc(x.name)+' <span class="b g">Bexio</span>'}</td><td>${esc(x.txt)}</td><td class="act"><div class="bar" style="margin:0">${bxRow(x,i)}</div></td></tr>`).join('')}</table>`:'<p class="mut">Keine Unterschiede – Wochenzentrale und Bexio stimmen überein.</p>'}
   if(f.t==='acc'){const a=acc.filter(c=>m((c.account_no||'')+' '+(c.name||''))).sort((x,y)=>String(x.account_no).localeCompare(String(y.account_no),undefined,{numeric:true}));
     body=`${bank.length?`<h3>Bankkonten in Bexio</h3><table><tr><th>Name</th><th>IBAN</th><th>Währung</th><th>Konto-Nr.</th></tr>${bank.map(b=>`<tr><td>${esc(b.name||b.bank_name||'')}</td><td class="num">${esc(b.iban_nr||b.iban||'')}</td><td>${esc(b.currency_code||b.currency_id||'')}</td><td>${esc(b.account_no||b.account_id||'')}</td></tr>`).join('')}</table>`:''}
     <h3 style="margin-top:12px">Kontenplan</h3><table><tr><th>Nr.</th><th>Konto</th><th>Typ</th><th>Aktiv</th></tr>${a.map(c=>`<tr><td class="num">${esc(c.account_no)}</td><td>${esc(c.name)}</td><td>${esc(c.account_type??'')}</td><td>${c.is_active===false?'nein':'ja'}</td></tr>`).join('')}</table>
@@ -962,33 +961,53 @@ async function bxArchive(kind,id){
 }
 /* Unterschiede Wochenzentrale ↔ Bexio */
 function bxDiffs(){
-  const out=[],bills=bxList('bill'),byId=Object.fromEntries(bills.map(b=>[String(b.id),b]));
-  S.records.filter(r=>r.details?.bexio?.kind==='bill').forEach(r=>{const b=byId[r.details.bexio.id];if(!b)return;
-    const ba=bxAmt(b),bo=bxBillOpen(b);
-    if(r.status==='erledigt'&&bo)out.push({r,b,typ:'paid_wz',txt:'In der Wochenzentrale bezahlt, in Bexio noch offen'});
-    if(!bo&&r.status!=='erledigt')out.push({r,b,typ:'paid_bx',txt:'In Bexio bezahlt, in der Wochenzentrale offen'});
-    if(ba!=null&&r.amount_chf!=null&&r.status!=='erledigt'&&Math.abs(+r.amount_chf-ba)>0.05&&!(r.details?.bexio?.open_amount!=null&&Math.abs(+r.amount_chf-r.details.bexio.open_amount)<=0.05))out.push({r,b,typ:'amt',txt:'Betrag: Wochenzentrale '+chf(r.amount_chf)+' / Bexio '+chf(ba)});
-    if(b.due_date&&r.due_date&&String(b.due_date).slice(0,10)!==r.due_date)out.push({r,b,typ:'due',txt:'Fällig: Wochenzentrale '+fd(r.due_date)+' / Bexio '+fd(String(b.due_date).slice(0,10))});
+  const out=[],bills=bxList('bill'),byId=Object.fromEntries(bills.map(b=>[String(b.id),b])),linked=new Set();
+  S.records.filter(r=>r.details?.bexio?.kind==='bill').forEach(r=>{const b=byId[r.details.bexio.id];if(!b)return;linked.add(String(b.id));
+    const bo=bxBillOpen(b),bp=bxOpen(b);
+    if(r.status==='erledigt'&&bo)out.push({r,b,typ:'paid_wz',txt:'In der Wochenzentrale bezahlt, in Bexio noch '+chf(bp)+' offen'});
+    else if(!bo&&r.status!=='erledigt')out.push({r,b,typ:'paid_bx',txt:'In Bexio bezahlt, in der Wochenzentrale offen'});
+    else if(bo&&r.amount_chf!=null&&bp!=null&&bp-r.amount_chf>0.05)out.push({r,b,typ:'bx_high',diff:Math.round((bp-r.amount_chf)*100)/100,txt:'Bexio zu hoch: Bexio '+chf(bp)+' offen, Wochenzentrale '+chf(r.amount_chf)+' – in Bexio fehlen Zahlungen über '+chf(bp-r.amount_chf)});
+    else if(bo&&r.amount_chf!=null&&bp!=null&&r.amount_chf-bp>0.05)out.push({r,b,typ:'amt',txt:'Betrag: Wochenzentrale '+chf(r.amount_chf)+' / Bexio '+chf(bp)+' offen'});
+    if(bo&&b.due_date&&r.due_date&&String(b.due_date).slice(0,10)!==r.due_date&&r.status!=='erledigt')out.push({r,b,typ:'due',txt:'Fällig: Wochenzentrale '+fd(r.due_date)+' / Bexio '+fd(String(b.due_date).slice(0,10))});
   });
-  const names=new Set(bxList('contact').map(c=>[c.name_1,c.name_2].filter(Boolean).join(' ').toLowerCase()));
-  if(names.size){const seen=new Set();S.records.filter(r=>r.category==='zahlung'&&open(r)&&!r.details?.bexio).forEach(r=>{const f=firma(r);const k=f.toLowerCase();if(!f||seen.has(k)||[...names].some(n=>n.includes(k.split(' ')[0])||k.includes(n.split(' ')[0])))return;seen.add(k);out.push({r,typ:'contact',txt:'Gläubiger «'+f+'» fehlt in Bexio'})})}
+  bills.filter(b=>bxBillOpen(b)&&!/draft/i.test(b.status||'')&&!linked.has(String(b.id))).forEach(b=>{
+    const name=b.vendor||b.lastname_company||bxContact(b.contact_id)||'Lieferant',cand=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&r.status!=='erledigt'&&!r.details?.bexio&&bxSame(name,r.title+' '+(r.details?.firma||'')));
+    out.push({b,cand,name,typ:'only_bx',txt:'Nur in Bexio: '+name+' '+(b.document_no||'')+', offen '+chf(bxOpen(b))+(b.due_date?', fällig '+fd(String(b.due_date).slice(0,10)):'')});
+  });
+  const names=new Set(bxList('contact').map(c=>[c.name_1,c.name_2].filter(Boolean).join(' ')));
+  if(names.size){const seen=new Set();S.records.filter(r=>r.category==='zahlung'&&open(r)&&!r.details?.bexio&&!/darlehen|lohn|privat|afro event/i.test(r.title)).forEach(r=>{const f=firma(r),k=bxNorm(f);if(!f||seen.has(k)||[...names].some(n=>bxSame(f,n)||bxSame(n,f)))return;seen.add(k);out.push({r,typ:'contact',txt:'Gläubiger «'+f+'» fehlt in Bexio'})})}
   return out;
 }
+const bxRow=(x,i)=>x.typ==='paid_wz'?`<button class="btn xs" onclick="bxFix(${i})">In Bexio als bezahlt verbuchen</button>`:
+  x.typ==='paid_bx'?`<button class="btn xs" onclick="bxFix(${i})">In Wochenzentrale erledigen</button>`:
+  x.typ==='bx_high'?`<button class="btn xs" onclick="bxFix(${i})">Fehlende Zahlung in Bexio verbuchen</button>`:
+  x.typ==='contact'?`<button class="btn xs sec" onclick="bxFix(${i})">Kontakt in Bexio anlegen</button>`:
+  x.typ==='only_bx'?`<select id="bxs${i}" style="max-width:220px">${x.cand.map(r=>`<option value="${r.id}">gehört zu: ${esc(r.title.slice(0,40))} (${chf(r.amount_chf)})</option>`).join('')}<option value="">— neu in Wochenzentrale übernehmen —</option><optgroup label="andere offene Posten">${S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&r.status!=='erledigt'&&!r.details?.bexio&&!x.cand.includes(r)).sort((a,b)=>a.title.localeCompare(b.title)).map(r=>`<option value="${r.id}">${esc(r.title.slice(0,40))} (${chf(r.amount_chf)})</option>`).join('')}</optgroup></select><button class="btn xs" onclick="bxFix(${i})">Übernehmen</button>`:
+  `<button class="btn xs sec" onclick="bxFix(${i},'bx')">Bexio-Wert übernehmen</button><button class="btn xs sec" onclick="bxFix(${i},'wz')">Wochenzentrale gilt</button>`;
 async function bxFix(i,how){
   const x=bxDiffs()[i];if(!x)return;const {r,b}=x;
-  if(x.typ==='paid_wz')return bxPay('bill',b.id);
+  if(x.typ==='paid_wz')return bxPay('bill',b.id,bxOpen(b),r);
+  if(x.typ==='bx_high')return bxPay('bill',b.id,x.diff,r);
+  if(x.typ==='only_bx'){const sel=$('#bxs'+i)?.value,det={kind:'bill',id:String(b.id),nr:b.document_no||null,status:b.status||null,open_amount:bxOpen(b)};
+    if(sel){const t=S.records.find(z=>z.id===sel);if(!confirm('Bexio-Rechnung '+(b.document_no||'')+' ('+x.name+', offen '+chf(bxOpen(b))+') mit «'+t.title+'» verknüpfen?'))return;
+      const {error}=await sb.from('lp_records').update({details:{...(t.details||{}),bexio:det},notes:(t.notes||'')+'\nBEXIO '+fd(today())+': verknüpft mit Lieferantenrechnung '+(b.document_no||b.id)+' (Bexio offen '+chf(bxOpen(b))+') von '+S.name+'.'}).eq('id',t.id);if(error)return fail(error);toast('Verknüpft')}
+    else{if(!confirm('«'+x.name+'» mit '+chf(bxOpen(b))+' neu in der Wochenzentrale erfassen?'))return;
+      const {error}=await sb.from('lp_records').insert({source_key:'bexio-bill-'+b.id,category:'zahlung',title:'Rechnung '+x.name+(b.document_no?' – '+b.document_no:''),status:'offen',priority:'mittel',amount_chf:bxOpen(b),due_date:b.due_date?String(b.due_date).slice(0,10):null,responsible:'Arben',notes:'Aus Bexio übernommen von '+S.name+' am '+fd(today())+' (Status '+b.status+').',details:{firma:x.name,bexio:det}});if(error)return fail(error);toast('Übernommen')}
+    await load();return vBexio()}
   let v=null,msg='';
   if(x.typ==='paid_bx'){v={status:'erledigt',confirmed_on:today(),notes:(r.notes||'')+'\nBEXIO '+fd(today())+': In Bexio als bezahlt geführt – übernommen von '+S.name+'.'};msg='Als erledigt übernommen'}
-  if(x.typ==='amt'){if(how!=='bx')return alert('Bitte den Betrag in Bexio von Hand auf '+chf(r.amount_chf)+' ändern; die Schnittstelle erlaubt das Ändern bestehender Rechnungen nicht zuverlässig.');v={amount_chf:bxAmt(b),notes:(r.notes||'')+'\nBEXIO '+fd(today())+': Betrag aus Bexio übernommen (vorher '+chf(r.amount_chf)+').'};msg='Betrag aus Bexio übernommen'}
+  if(x.typ==='amt'){if(how!=='bx')return alert('Bexio zeigt weniger offen als die Wochenzentrale. Falls die Wochenzentrale stimmt, bitte den Betrag in Bexio von Hand prüfen.');v={amount_chf:bxOpen(b),notes:(r.notes||'')+'\nBEXIO '+fd(today())+': offener Betrag aus Bexio übernommen (vorher '+chf(r.amount_chf)+').'};msg='Betrag aus Bexio übernommen'}
   if(x.typ==='due'){if(how!=='bx')return alert('Bitte die Fälligkeit in Bexio von Hand auf '+fd(r.due_date)+' ändern.');v={due_date:String(b.due_date).slice(0,10)};msg='Fälligkeit aus Bexio übernommen'}
   if(x.typ==='contact'){const n=firma(r);if(!confirm('Kontakt «'+n+'» in Bexio anlegen?'))return;const d=await bexioCall({action:'contact_create',name:n});if(d.error)return toast('Bexio: '+d.error,1);toast('Kontakt in Bexio angelegt');return autoBexio(true)}
   if(!v||!confirm(msg+' für «'+r.title+'»?'))return;
   const {error}=await sb.from('lp_records').update(v).eq('id',r.id);if(error)return fail(error);toast(msg);await load();vBexio();
 }
-async function bxPay(kind,id){
+async function bxPay(kind,id,amtIn,rec){
   const it=bxList(kind).find(x=>String(x.id)===String(id));if(!it)return;
-  const amt=kind==='invoice'?+it.total:bxAmt(it),name=kind==='invoice'?bxContact(it.contact_id):(it.lastname_company||bxContact(it.contact_id||it.supplier_id));
-  const sign=kind==='invoice'?1:-1,cand=S.tx.filter(t=>t.review_state!=='duplikat'&&Math.abs(+t.amount_chf-sign*amt)<=0.05).sort((a,b)=>b.booking_date.localeCompare(a.booking_date)).slice(0,6);
+  const amt=amtIn??(kind==='invoice'?+it.total:bxOpen(it)),name=kind==='invoice'?bxContact(it.contact_id):(it.vendor||it.lastname_company||bxContact(it.contact_id||it.supplier_id));
+  const sign=kind==='invoice'?1:-1,alias=rec?firma(rec):'';
+  // passende Bankbuchungen: gleicher Betrag oder Zahlung an denselben Empfänger (auch über Alias, z. B. Leons Böden = Gezim)
+  const cand=S.tx.filter(t=>t.review_state!=='duplikat'&&Math.sign(+t.amount_chf)===sign&&(Math.abs(+t.amount_chf-sign*amt)<=0.05||bxSame(name,payee(t)+' '+t.description)||(alias&&bxSame(alias,payee(t))))).sort((a,b)=>b.booking_date.localeCompare(a.booking_date)).slice(0,8);
   let pick=null;
   if(cand.length){const s=prompt('Passende Bankbuchung wählen (Nummer eingeben, leer = ohne Bankbuchung):\n\n'+cand.map((t,i)=>(i+1)+') '+fd(t.booking_date)+'  '+chf(t.amount_chf)+'  '+(t.description||'').slice(0,60)).join('\n'),'1');if(s===null)return;pick=cand[+s-1]||null}
   const date=pick?.booking_date||prompt('Zahlungsdatum (JJJJ-MM-TT):',today());if(!date)return;

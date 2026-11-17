@@ -3,7 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 // Bexio-Anbindung der Wochenzentrale. Nur für Admins.
 // Der Zugangsschlüssel kommt ausschliesslich aus dem Secret BEXIO_TOKEN (Personal Access Token).
 // sync:            liest Kontakte, Kundenrechnungen, Lieferantenrechnungen und Konten (nur lesend)
-//                  und legt Lieferantenrechnungen als Einträge unter «Rechnungen» an bzw. aktualisiert sie.
+//                  und verknüpft Lieferantenrechnungen mit bestehenden Einträgen (legt nichts neu an).
 // invoice_paid:    bucht eine Zahlung auf eine Kundenrechnung in Bexio (nur auf ausdrücklichen Klick).
 // bill_paid:       erfasst eine Zahlung zu einer Lieferantenrechnung in Bexio (nur auf ausdrücklichen Klick).
 // contact_create:  legt einen Kontakt in Bexio an.
@@ -68,10 +68,14 @@ const num = (...v: any[]) => { for (const x of v) { const n = parseFloat(x); if 
 const day = (v: any) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null);
 const contactName = (c: any) => [c?.name_1, c?.name_2].filter(Boolean).join(" ").trim();
 const billFirma = (b: any, contacts: Map<string, any>) =>
-  b.lastname_company || b.supplier_name || b.contact_name || contactName(contacts.get(String(b.contact_id ?? b.supplier_id ?? ""))) || "Lieferant";
+  b.vendor || b.lastname_company || b.supplier_name || b.contact_name || contactName(contacts.get(String(b.contact_id ?? b.supplier_id ?? ""))) || "Lieferant";
 const billAmount = (b: any) => num(b.amount_man, b.amount_calc, b.total_gross, b.gross, b.total, b.amount);
 const billOpen = (b: any) => num(b.pending_amount, b.open_amount, b.amount_open);
 const billPaid = (b: any) => /^paid$|^bezahlt/i.test(String(b.status ?? ""));
+// Firmenname vergleichbar machen: Rechtsform und Sonderzeichen weg, Alias (Bank/Bexio-Name ≠ Gläubiger)
+const ALIAS: [RegExp, string][] = [[/leons böden/i, "gezim"]];
+const norm = (s: string) => { for (const [r, a] of ALIAS) if (r.test(s)) return a; return s.toLowerCase().replace(/\b(gmbh|ag|sa|sàrl|in|und|&)\b/g, " ").replace(/[^a-zäöüéèà0-9 ]/g, " ").replace(/\s+/g, " ").trim(); };
+const sameFirm = (a: string, b: string) => { const x = norm(a).split(" ").filter((w) => w.length > 2), y = norm(b); return x.some((w) => y.includes(w)); };
 const billCancelled = (b: any) => /cancel|storn/i.test(String(b.status ?? ""));
 const billDraft = (b: any) => /draft|entwurf/i.test(String(b.status ?? ""));
 
@@ -221,7 +225,7 @@ Deno.serve(async (req) => {
       for (const f of todo) { const a = await archive(sb, B, "file", String(f.id), f); if (a.doc) res.archived.push(a.doc.file_name); else if (a.error) res.warnings.push(a.error); }
     } catch (e) { res.warnings.push("Belege: " + (e as Error).message); }
 
-    // Lieferantenrechnungen -> Einträge unter «Rechnungen»
+    // Lieferantenrechnungen -> nur mit bestehenden Einträgen verknüpfen
     const cmap = new Map(contacts.map((c: any) => [String(c.id), c]));
     const { data: recs } = await sb.from("lp_records").select("id,source_key,title,amount_chf,status,details,notes,updated_at")
       .in("category", ["zahlung", "lieferant", "vertrag"]);
@@ -229,38 +233,30 @@ Deno.serve(async (req) => {
     let neu = 0, akt = 0, verkn = 0;
     for (const b of bills) {
       if (billDraft(b)) continue;
-      const key = "bexio-bill-" + b.id, firma = billFirma(b, cmap), amt = billAmount(b), paid = billPaid(b), canc = billCancelled(b);
+      const firma = billFirma(b, cmap), amt = billAmount(b), paid = billPaid(b), canc = billCancelled(b);
       const open = billOpen(b);
       const status = canc || paid ? "erledigt" : "offen";
       const det = { firma, bexio: { kind: "bill", id: String(b.id), nr: b.document_no ?? b.vendor_ref ?? null, status: b.status ?? null, open_amount: open } };
-      let r = R.find((x: any) => x.source_key === key || x.details?.bexio?.kind === "bill" && x.details?.bexio?.id === String(b.id));
-      if (!r && amt != null) {
-        const f = firma.toLowerCase().split(/\s+/)[0];
-        const cand = R.filter((x: any) => !x.details?.bexio && x.amount_chf != null && Math.abs(+x.amount_chf - amt) <= 0.05 &&
-          f.length > 2 && (x.title + " " + (x.details?.firma ?? "")).toLowerCase().includes(f));
-        if (cand.length === 1) {
-          r = cand[0];
-          await sb.from("lp_records").update({ details: { ...(r.details || {}), ...det },
-            notes: (r.notes || "") + `\nBEXIO: verknüpft mit Lieferantenrechnung ${det.bexio.nr ?? b.id} (${b.status ?? "?"}).` }).eq("id", r.id);
-          verkn++; continue;
-        }
-      }
+      // Nur verknüpfen, nie neu anlegen und keinen Status überschreiben: Die Wochenzentrale ist mit Bank und
+      // Finanzübersicht abgeglichen; Unterschiede werden im Tab «Abgleich» per Klick angeglichen.
+      const r = R.find((x: any) => x.details?.bexio?.kind === "bill" && x.details?.bexio?.id === String(b.id));
       if (r) {
-        if (r.details?.bexio?.status !== det.bexio.status || (status === "erledigt" && r.status !== "erledigt")) {
-          await sb.from("lp_records").update({ status: status === "erledigt" ? "erledigt" : r.status, details: { ...(r.details || {}), ...det } }).eq("id", r.id);
-          akt++;
+        if (r.details?.bexio?.status !== det.bexio.status || r.details?.bexio?.open_amount !== det.bexio.open_amount) {
+          await sb.from("lp_records").update({ details: { ...(r.details || {}), bexio: { ...det.bexio } } }).eq("id", r.id); akt++;
         }
         continue;
       }
-      if (status === "erledigt") continue; // alte, bereits bezahlte Rechnungen nicht neu anlegen
-      const { error } = await sb.from("lp_records").insert({
-        source_key: key, category: "zahlung", status: "offen", priority: "mittel", responsible: "Arben",
-        title: "Rechnung " + firma + (det.bexio.nr ? " – " + det.bexio.nr : ""), amount_chf: open ?? amt,
-        due_date: day(b.due_date), notes: "Aus Bexio übernommen (Lieferantenrechnung, Status " + (b.status ?? "?") + ").", details: det,
-      });
-      if (error) res.warnings.push("Rechnung " + b.id + ": " + error.message); else neu++;
+      if (status === "erledigt") continue;
+      const cand = R.filter((x: any) => !x.details?.bexio && x.status !== "erledigt" && sameFirm(firma, x.title + " " + (x.details?.firma ?? "")) &&
+        x.amount_chf != null && [open, amt].some((v) => v != null && Math.abs(+x.amount_chf - v) <= 0.05));
+      if (cand.length === 1) {
+        const c = cand[0];
+        await sb.from("lp_records").update({ details: { ...(c.details || {}), bexio: det.bexio },
+          notes: (c.notes || "") + `\nBEXIO: verknüpft mit Lieferantenrechnung ${det.bexio.nr ?? b.id} (${b.status ?? "?"}).` }).eq("id", c.id);
+        c.details = { ...(c.details || {}), bexio: det.bexio }; verkn++;
+      } else neu++; // bleibt «nur in Bexio» – Entscheid im Tab «Abgleich»
     }
-    res.bills = { neu, aktualisiert: akt, verknuepft: verkn };
+    res.bills = { nur_in_bexio: neu, aktualisiert: akt, verknuepft: verkn };
     res.synced_at = now;
     return json(res);
   } catch (e) {

@@ -177,10 +177,16 @@ Deno.serve(async (req) => {
       });
       // Bexio-Konto als Zahl; falls Bexio die UUID erwartet, einmal mit UUID wiederholen
       let r;
-      try { r = await pay(Number(bank.bexio_id)); }
-      catch (e) {
-        if (e instanceof BexioError && e.status === 400 && /sender_bank_account/i.test(e.message) && bank.data?.uuid) r = await pay(bank.data.uuid);
-        else throw e;
+      try {
+        try { r = await pay(Number(bank.bexio_id)); }
+        catch (e) {
+          if (e instanceof BexioError && e.status === 400 && /sender_bank_account/i.test(e.message) && bank.data?.uuid) r = await pay(bank.data.uuid);
+          else throw e;
+        }
+      } catch (e) {
+        // abgelehnte Buchung protokollieren, damit der Grund nachvollziehbar ist
+        await log("bexio_bill_paid_fehler", "bill:" + id, { value, date, bank_tx: body.bank_tx ?? null, error: String((e as Error).message).slice(0, 400) });
+        throw e;
       }
       await log("bexio_bill_paid", "bill:" + id, { value, date, bank_tx: body.bank_tx ?? null, bexio: r });
       return json({ ok: true, result: r });

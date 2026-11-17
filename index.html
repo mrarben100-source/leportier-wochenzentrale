@@ -1051,6 +1051,11 @@ function bxDiffs(){
     else if(bo&&r.amount_chf!=null&&bp!=null&&r.amount_chf-bp>0.05)out.push({r,b,typ:'amt',txt:'Betrag: Wochenzentrale '+chf(r.amount_chf)+' / Bexio '+chf(bp)+' offen'});
     if(bo&&b.due_date&&r.due_date&&String(b.due_date).slice(0,10)!==r.due_date&&r.status!=='erledigt')out.push({r,b,typ:'due',txt:'Fällig: Wochenzentrale '+fd(r.due_date)+' / Bexio '+fd(String(b.due_date).slice(0,10))});
   });
+  const bm=bxBankMatch();
+  bills.filter(b=>bxBillOpen(b)&&!/draft/i.test(b.status||'')&&(bxOpen(b)||0)>0.05&&!bm[String(b.id)]).forEach(b=>{
+    const name=b.vendor||b.lastname_company||bxContact(b.contact_id)||'Lieferant';
+    out.push({b,name,typ:'paid_manual',txt:'In Bexio offen: '+name+' '+(b.document_no||'')+' – noch '+chf(bxOpen(b))+' offen, keine passende Bankzahlung gefunden. Schon bezahlt?'});
+  });
   bills.filter(b=>bxBillOpen(b)&&!/draft/i.test(b.status||'')&&!linked.has(String(b.id))).forEach(b=>{
     const name=b.vendor||b.lastname_company||bxContact(b.contact_id)||'Lieferant',cand=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&r.status!=='erledigt'&&!r.details?.bexio&&bxSame(name,r.title+' '+(r.details?.firma||'')));
     out.push({b,cand,name,typ:'only_bx',txt:'Nur in Bexio: '+name+' '+(b.document_no||'')+', offen '+chf(bxOpen(b))+(b.due_date?', fällig '+fd(String(b.due_date).slice(0,10)):'')});
@@ -1059,12 +1064,42 @@ function bxDiffs(){
   if(names.size){const seen=new Set();S.records.filter(r=>r.category==='zahlung'&&open(r)&&!r.details?.bexio&&!/darlehen|lohn|privat|afro event/i.test(r.title)).forEach(r=>{const f=firma(r),k=bxNorm(f);if(!f||seen.has(k)||[...names].some(n=>bxSame(f,n)||bxSame(n,f)))return;seen.add(k);out.push({r,typ:'contact',txt:'Gläubiger «'+f+'» fehlt in Bexio'})})}
   return out;
 }
-const bxRow=(x,i)=>x.typ==='bank_paid'?`<button class="btn xs" onclick="bxFix(${i})">Bank-Zahlungen in Bexio verbuchen</button>`:x.typ==='paid_wz'?`<button class="btn xs" onclick="bxFix(${i})">In Bexio als bezahlt verbuchen</button>`:
+const bxRow=(x,i)=>x.typ==='paid_manual'?`<button class="btn xs" onclick="bxPaidDlg('${x.b.id}')">Bereits bezahlt…</button>`:x.typ==='bank_paid'?`<button class="btn xs" onclick="bxFix(${i})">Bank-Zahlungen in Bexio verbuchen</button>`:x.typ==='paid_wz'?`<button class="btn xs" onclick="bxFix(${i})">In Bexio als bezahlt verbuchen</button>`:
   x.typ==='paid_bx'?`<button class="btn xs" onclick="bxFix(${i})">In Wochenzentrale erledigen</button>`:
   x.typ==='bx_high'?`<button class="btn xs" onclick="bxFix(${i})">Fehlende Zahlung in Bexio verbuchen</button>`:
   x.typ==='contact'?`<button class="btn xs sec" onclick="bxFix(${i})">Kontakt in Bexio anlegen</button>`:
   x.typ==='only_bx'?`<select id="bxs${i}" style="max-width:220px">${x.cand.map(r=>`<option value="${r.id}">gehört zu: ${esc(r.title.slice(0,40))} (${chf(r.amount_chf)})</option>`).join('')}<option value="">— neu in Wochenzentrale übernehmen —</option><optgroup label="andere offene Posten">${S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&r.status!=='erledigt'&&!r.details?.bexio&&!x.cand.includes(r)).sort((a,b)=>a.title.localeCompare(b.title)).map(r=>`<option value="${r.id}">${esc(r.title.slice(0,40))} (${chf(r.amount_chf)})</option>`).join('')}</optgroup></select><button class="btn xs" onclick="bxFix(${i})">Übernehmen</button>`:
   `<button class="btn xs sec" onclick="bxFix(${i},'bx')">Bexio-Wert übernehmen</button><button class="btn xs sec" onclick="bxFix(${i},'wz')">Wochenzentrale gilt</button>`;
+/* «Bereits bezahlt»: Bankbuchungen frei auswählen (GmbH und AG) oder ohne Bankbuchung (bar/privat) – nur verbuchen, nie überweisen */
+function bxPaidDlg(id){
+  const b=bxList('bill').find(x=>String(x.id)===String(id));if(!b)return;const name=b.vendor||b.lastname_company||bxContact(b.contact_id)||'Lieferant',rest=bxOpen(b)||0;
+  const all=S.tx.filter(t=>+t.amount_chf<0&&t.review_state!=='duplikat'&&!intern(t)&&!/In Bexio gebucht/.test(t.notes||''));
+  const score=t=>(bxSame(name,payee(t)+' '+t.description)?0:1000)+Math.min(Math.abs(-t.amount_chf-rest),999)/10+(b.bill_date&&t.booking_date<String(b.bill_date).slice(0,10)?500:0);
+  const list=all.slice().sort((x,y)=>score(x)-score(y));
+  const row=t=>`<label class="sm" style="display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--line)" data-q="${esc((t.description+' '+payee(t)+' '+t.amount_chf+' '+fd(t.booking_date)).toLowerCase())}"><input type="checkbox" class="bxp" value="${t.id}" data-a="${-t.amount_chf}" onchange="bxPaidSum(${rest})"><span><b>${fd(t.booking_date)} · ${chf(-t.amount_chf)}</b> <span class="b ${konto(t)==='AG'?'zu_pruefen':'g'}">${konto(t)}</span><br>${esc((t.description||'').slice(0,90))}</span></label>`;
+  dlg.innerHTML=`<form method="dialog" onsubmit="return false"><h2>Bereits bezahlt: ${esc(name)} ${esc(b.document_no||'')}</h2>
+   <p class="sm mut">In Bexio offen: <b>${chf(rest)}</b> (Rechnung vom ${fd(String(b.bill_date||'').slice(0,10))}). Wähle die Bankzahlung(en), mit denen die Rechnung bezahlt wurde – oder erfasse eine Zahlung ohne Bankbuchung. Es wird nur in Bexio <b>verbucht</b>, nichts überwiesen.</p>
+   <input id="bxq2" placeholder="Bankbuchungen suchen (Name, Betrag, Datum)…" style="width:100%" oninput="document.querySelectorAll('#bxpl label').forEach(l=>l.style.display=l.dataset.q.includes(this.value.toLowerCase())?'':'none')">
+   <div id="bxpl" style="max-height:45vh;overflow:auto;margin:8px 0">${list.slice(0,150).map(row).join('')||'<p class="mut">Keine Bankbuchungen geladen.</p>'}</div>
+   <p class="sm" id="bxps">Ausgewählt: CHF 0.00</p>
+   <details style="margin:8px 0"><summary class="sm">Ohne Bankbuchung bezahlt (bar, privat, anderes Konto)</summary><div class="fg" style="margin-top:8px"><label>Datum<input type="date" id="bxmd" value="${today()}"></label><label>Betrag CHF<input type="number" step="0.05" id="bxma" value="${rest}"></label><label class="w">Wie bezahlt?<input id="bxmn" placeholder="z. B. bar an der Bar, privat von Arben"></label></div></details>
+   <div class="bar"><button class="btn sec" onclick="dlg.close()">Abbrechen</button><button class="btn" onclick="bxPaidSave('${b.id}')">In Bexio als bezahlt verbuchen</button></div></form>`;
+  dlg.showModal();
+}
+function bxPaidSum(rest){const s=[...document.querySelectorAll('.bxp:checked')].reduce((a,e)=>a+ +e.dataset.a,0);$('#bxps').innerHTML='Ausgewählt: <b>'+chf(s)+'</b>'+(s>rest+0.05?' <span style="color:var(--red)">– mehr als offen, es wird höchstens '+chf(rest)+' verbucht</span>':'')}
+async function bxPaidSave(id){
+  const b=bxList('bill').find(x=>String(x.id)===String(id)),name=b.vendor||b.lastname_company||'',ids=[...document.querySelectorAll('.bxp:checked')].map(e=>e.value);
+  let rest=bxOpen(b)||0;const take=[];
+  for(const t of S.tx.filter(t=>ids.includes(t.id)).sort((x,y)=>x.booking_date.localeCompare(y.booking_date))){if(rest<=0.05)break;const a=Math.round(Math.min(-t.amount_chf,rest)*100)/100;take.push({t,a});rest-=a}
+  const ma=+($('#bxma')?.value||0),md=$('#bxmd')?.value,mn=($('#bxmn')?.value||'').trim(),manual=$('details[open]')&&ma>0&&md;
+  if(!take.length&&!manual)return toast('Bitte Bankbuchung(en) auswählen oder «Ohne Bankbuchung» ausfüllen',1);
+  dlg.close();
+  if(take.length)await bxBookBank([{b,name,take}]);
+  if(manual){const d=await bexioCall({action:'bill_paid',id:b.id,amount:Math.min(ma,bxOpen(b)||ma),date:md});
+    if(d.error)return toast('Bexio: '+d.error,1);
+    await sb.from('lp_changes').insert({actor_id:S.user.id,action:'bexio_bill_paid_manuell',table_name:'bexio',row_key:'bill:'+b.id,after_value:{betrag:ma,datum:md,wie:mn||'ohne Bankbuchung'}});
+    toast('In Bexio als bezahlt verbucht ('+(mn||'ohne Bankbuchung')+')');await autoBexio(true)}
+}
 async function bxBookBank(list){
   // list: [{b,take:[{t,a}]}] – verbucht bereits erfolgte Zahlungen in Bexio (nichts wird überwiesen)
   let ok=0,err=[];

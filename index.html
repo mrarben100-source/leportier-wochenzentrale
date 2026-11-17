@@ -481,7 +481,7 @@ async function saveTx(out,bal){
 }
 /* Bankabgleich: nur bei genau gleichem Betrag, passendem Namen und eindeutigem Treffer */
 const STOPW=/^(rechnung|zahlung|laufende|neue|neuer|forderung|teilrechnung|mahnung|restlohn|lohn|und|der|die|das|von|für|gmbh|schweiz|switzerland|events?|pruefen|prüfen|januar|februar|märz|april|juni|juli|august|september|oktober|november|dezember|septemberlohn|oktoberlohn|novemberlohn)$/;
-const words=r=>[...new Set((r.title+' '+(r.details?.firma||'')).toLowerCase().split(/[^a-zäöüéèà0-9]+/).filter(w=>w.length>=4&&!STOPW.test(w)&&!/^\d+$/.test(w)))];
+const words=r=>[...new Set((r.title+' '+(r.details?.firma||'')).toLowerCase().split(/[^a-zäöüéèà0-9]+/).filter(w=>w.length>=4&&!STOPW.test(w)&&!/^\d+$/.test(w))),...(/\bewb\b/i.test(r.title)?['energie wasser']:[]),...(/\bbdo\b/i.test(r.title)?['bdo']:[])];
 async function autoMatch(rows){const hit=[],used=new Set();
   for(const t of rows){if(!(+t.amount_chf<0)||t.record_id)continue;const d=(t.description||'').toLowerCase(),amt=Math.abs(+t.amount_chf);
     const c=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&r.status!=='erledigt'&&!used.has(r.id)&&r.details?.art!=='altforderung'&&r.amount_chf!=null&&Math.abs(+r.amount_chf-amt)<0.005&&words(r).some(w=>d.includes(w)));

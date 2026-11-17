@@ -472,11 +472,24 @@ async function importCsv(){
   await saveTx(out);
 }
 async function saveTx(out,bal){
-  const {data,error}=await sb.from('lp_bank_tx').upsert(out,{onConflict:'dedupe_key',ignoreDuplicates:true}).select('id');
+  const {data,error}=await sb.from('lp_bank_tx').upsert(out,{onConflict:'dedupe_key',ignoreDuplicates:true}).select('id,booking_date,description,amount_chf,record_id');
   if(error)return fail(error);
   if(bal&&!S.bal.some(b=>b.as_of>bal.as_of||(b.as_of===bal.as_of&&+b.amount_chf===bal.amount_chf))){const r=await sb.from('lp_bank_balance').insert(bal);if(r.error)fail(r.error)}
-  toast((data?.length||0)+' neu importiert, '+(out.length-(data?.length||0))+' bereits vorhanden');refresh();
+  const hit=await autoMatch(data||[]);
+  toast((data?.length||0)+' neu importiert, '+(out.length-(data?.length||0))+' bereits vorhanden'+(hit.length?', '+hit.length+' Forderung(en) als bezahlt erkannt':''));await refresh();
+  if(hit.length)alert('Automatisch als bezahlt erkannt (gleicher Betrag und passender Empfänger):\n\n'+hit.join('\n')+'\n\nEs wurde keine Zahlung ausgelöst. Alles andere bleibt «Zu prüfen».');
 }
+/* Bankabgleich: nur bei genau gleichem Betrag, passendem Namen und eindeutigem Treffer */
+const STOPW=/^(rechnung|zahlung|laufende|neue|neuer|forderung|teilrechnung|mahnung|restlohn|lohn|und|der|die|das|von|für|gmbh|schweiz|switzerland|events?|pruefen|prüfen|januar|februar|märz|april|juni|juli|august|september|oktober|november|dezember|septemberlohn|oktoberlohn|novemberlohn)$/;
+const words=r=>[...new Set((r.title+' '+(r.details?.firma||'')).toLowerCase().split(/[^a-zäöüéèà0-9]+/).filter(w=>w.length>=4&&!STOPW.test(w)&&!/^\d+$/.test(w)))];
+async function autoMatch(rows){const hit=[],used=new Set();
+  for(const t of rows){if(!(+t.amount_chf<0)||t.record_id)continue;const d=(t.description||'').toLowerCase(),amt=Math.abs(+t.amount_chf);
+    const c=S.records.filter(r=>['zahlung','lieferant','vertrag'].includes(r.category)&&r.status!=='erledigt'&&!used.has(r.id)&&r.details?.art!=='altforderung'&&r.amount_chf!=null&&Math.abs(+r.amount_chf-amt)<0.005&&words(r).some(w=>d.includes(w)));
+    if(c.length!==1)continue;const r=c[0];
+    const u=await sb.from('lp_bank_tx').update({record_id:r.id,review_state:'ok'}).eq('id',t.id);if(u.error)continue;
+    const v=await sb.from('lp_records').update({status:'erledigt',notes:[r.notes,'Automatisch als bezahlt erkannt: Bankbuchung vom '+fd(t.booking_date)+' über '+chf(amt)+'.'].filter(Boolean).join('\n')}).eq('id',r.id).eq('updated_at',r.updated_at);
+    if(v.error)continue;used.add(r.id);hit.push('• '+r.title+' – '+chf(amt)+' am '+fd(t.booking_date))}
+  return hit}
 /* ---------- Valiant-PDF ---------- */
 const RULES=[[/stardrinks/i,'Getränke','lieferantenbestellung'],[/heineken|feldschl/i,'Getränke','lieferantenbestellung'],[/ewb|energie wasser/i,'Energie','normal'],[/axa|versicherung/i,'Versicherung','normal'],[/bernische pensionskasse|\(bpk\)/i,'Miete','normal'],[/gastrosocial|pensionskasse|ahv|ausgleichskasse/i,'Sozialversicherung','normal'],[/sumup|twint|payrexx|eventfrog|worldline/i,'Karten- und Onlineeinnahmen','normal'],[/betreibungsamt|inkasso|eos schweiz/i,'Betreibung / Inkasso','normal'],[/facebk|facebook|meta /i,'Werbung','normal'],[/kartengeb|setgeb|kontof|spesen des|habenzins|sollzins|buchungsspesen|kontoabschluss|^gebühr/i,'Bankgebühren','normal'],[/hostpoint/i,'IT','normal'],[/suisa/i,'SUISA','normal'],[/security/i,'Security','event'],[/sunrise|swisscom/i,'Telekom','normal'],[/treuhand/i,'Treuhand','normal'],[/jt intl|jti/i,'Sponsoring','normal'],[/lohn|salär|salaer/i,'Lohn','lohn'],[/bdo|miete/i,'Miete','normal']];
 const pnum=s=>+String(s).replace(/['’]/g,'');

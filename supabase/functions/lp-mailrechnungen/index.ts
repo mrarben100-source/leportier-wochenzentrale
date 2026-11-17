@@ -9,7 +9,7 @@ import { extractText, getDocumentProxy } from "npm:unpdf@0.12.1";
 // - Bank: nur eindeutige Treffer (gleicher Betrag, passender Name, Datum danach) werden verknüpft.
 // - Bexio: nichts wird automatisch gebucht; Abgleich bleibt in der App per Klick.
 // Sicherheit: Postfach nur lesend, keine Eingaben, Rückgabe nur Zähler. Jede Mail wird sofort gespeichert (abgebrochene Läufe werden fortgesetzt).
-const SEIT = new Date("2025-08-01T00:00:00Z"), MAXPDF = 8 * 1024 * 1024, MAXTXT = 30000;
+const SEIT = new Date("2025-08-01T00:00:00Z"), MAXPDF = 8 * 1024 * 1024, PROLAUF = 8; // höchstens 8 PDFs pro Lauf (Rechenzeit-Grenze)
 const cors = { "Access-Control-Allow-Origin": "https://mrarben100-source.github.io", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
   if (!u || !p) return json({ error: "not_configured" });
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const res: any = { ordner: [] as string[], kandidaten: 0, archiviert: 0, schon_im_archiv: 0, neue_rechnungen: 0, kundenrechnungen: 0, verknuepft: 0, mahnungen: 0, bank: 0, ohne_betrag: 0, fehler: 0 };
-  const ownDom = dom(u), t0 = Date.now();
+  const ownDom = dom(u), t0 = Date.now(); let n = 0;
   // Bekanntes vorab laden (Dubletten vermeiden, ohne Download)
   const docIds = new Set<string>(), docSig = new Set<string>();
   for (let f = 0; ; f += 1000) {
@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
   try {
     const boxes = (await client.list()).filter((b: any) => !b.flags?.has?.("\\Noselect") && !SKIPBOX.test(b.path) && !["\\Trash", "\\Junk", "\\Drafts"].includes(b.specialUse));
     for (const box of boxes) {
-      if (Date.now() - t0 > 120000) break; // Rest im nächsten Lauf
+      if (Date.now() - t0 > 100000 || n >= PROLAUF) break; // Rest im nächsten Lauf
       const rechOrdner = /rechnung/i.test(box.path);
       res.ordner.push(box.path);
       const lock = await client.getMailboxLock(box.path, { readOnly: true });
@@ -133,16 +133,17 @@ Deno.serve(async (req) => {
         res.kandidaten += kand.length;
         kand.sort((a, b) => +a.date - +b.date);
         for (const k of kand) {
-          if (Date.now() - t0 > 130000) break;
+          if (Date.now() - t0 > 110000 || n >= PROLAUF) break;
           const from = k.e.from?.[0] || {}, to = k.e.to?.[0] || {}, aus = dom(from.address) === ownDom, partner = aus ? to : from;
           const lf = firma(partner.name, partner.address), d = iso(k.date);
           for (const f of k.files) {
             const id = "mail_" + k.mid + "_" + safe(f.name);
             try {
               if (f.size > MAXPDF * 1.4) { await seen(id, "zu gross"); continue; }
+              if (n >= PROLAUF) break;
               const b = new Uint8Array(await dl(client, k.uid, f.part, MAXPDF));
               if (docSig.has(f.name + "|" + b.length)) { res.schon_im_archiv++; await seen(id, "schon im Archiv"); continue; }
-              docIds.add(id);
+              docIds.add(id); n++;
               let t = ""; try { const pdf = await getDocumentProxy(b.slice()); t = ((await extractText(pdf, { mergePages: false })).text as string[]).join("\n"); } catch (_) { /* gescanntes PDF ohne Text */ }
               t = t.replace(/\u0000/g, "").slice(0, 600000);
               const cat = aus ? "Kundenrechnungen" : "Lieferantenrechnungen", path = (aus ? "kundenrechnungen/" : "lieferantenrechnungen/") + crypto.randomUUID().slice(0, 8) + "-" + safe(f.name);
@@ -199,6 +200,6 @@ Deno.serve(async (req) => {
     console.warn("lp-mailrechnungen", String((e as Error)?.message ?? e));
     return json({ ...res, error: String((e as any)?.message || e) }, 500);
   } finally { await client.logout().catch(() => {}); }
-  res.ordner = res.ordner.length; // nur Anzahl zurückgeben
+  res.ordner = res.ordner.length; res.fertig = n < PROLAUF; // nur Zähler zurückgeben
   return json(res);
 });

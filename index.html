@@ -363,6 +363,28 @@ function evPersDel(id,i){if(!confirm('Diese Person aus dem Event entfernen?'))re
 function evPersKorr(id,name,h){const v=prompt('Stunden für '+name+' in diesem Event (leer = Wert aus der Stempeluhr):',h);if(v===null)return;
   evPersSet(id,d=>{const k={...(d.personal_korrektur||{})};if(v.trim()==='')delete k[name];else k[name]=+v.replace(',','.');d.personal_korrektur=k})}
 async function evStaffSave(id,h,lohn,anz){const r=S.records.find(x=>x.id===id),{error}=await sb.from('lp_records').update({details:{...(r.details||{}),personalstunden:Math.round(h*100)/100,kosten_personal:Math.round(lohn*100)/100,...(anz!=null?{personal_anzahl:anz}:{})}}).eq('id',id);if(error)return fail(error);toast('Personalstunden und Personalkosten im Event gespeichert');await load();evPrint(id)}
+/* PDF direkt in der App erzeugen (window.print() geht in der iPhone-Home-Bildschirm-App nicht). Teilen-Menü wenn möglich, sonst Download. */
+async function ensureH2p(){if(window.html2pdf)return;await new Promise((ok,no)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';s.onload=ok;s.onerror=()=>no(new Error('PDF-Erzeugung konnte nicht geladen werden'));document.head.appendChild(s)})}
+async function evPdf(id,modus){
+  const src=$('#main .card'),r=S.records.find(x=>x.id===id);if(!src||!r)return;
+  toast('PDF wird erstellt …');
+  try{await ensureH2p()}catch(e){return toast(e.message,1)}
+  const box=document.createElement('div');box.style.cssText='position:fixed;left:-10000px;top:0;width:760px;background:#fff;color:#111;padding:0';
+  const c=src.cloneNode(true);c.style.cssText='border:none;box-shadow:none;margin:0;padding:24px';
+  c.querySelectorAll('button,.bar,input,select').forEach(e=>e.remove());
+  c.querySelectorAll('table').forEach(t=>{t.classList.remove('cards');t.removeAttribute('data-cards');t.querySelectorAll('tr.hd').forEach(x=>x.classList.remove('hd'))});
+  c.querySelectorAll('.tw').forEach(e=>e.style.overflow='visible');
+  const st=document.createElement('style');st.textContent='.pdfx table{width:100%;font-size:11px;table-layout:auto}.pdfx td,.pdfx th{white-space:normal;padding:4px 5px}.pdfx .tw{overflow:visible}';c.classList.add('pdfx');c.prepend(st);
+  box.appendChild(c);document.body.appendChild(box);
+  const fn=('Eventabrechnung '+r.title.replace(/[·\/:*?"<>|]/g,' ')+(modus==='extern'?' (Veranstalter)':'')).replace(/\s+/g,' ').trim().replace(/\.+$/,'')+'.pdf';
+  try{
+    const blob=await html2pdf().set({margin:[10,8,12,8],filename:fn,image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,useCORS:true,windowWidth:760},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy'],avoid:['tr','h2']}}).from(c).outputPdf('blob');
+    const file=new File([blob],fn,{type:'application/pdf'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:fn});return}catch(e){if(e.name==='AbortError')return}}
+    const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=fn;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),60000);toast('PDF erstellt: '+fn);
+  }catch(e){console.warn(e);toast('PDF konnte nicht erstellt werden: '+(e.message||e),1)}
+  finally{box.remove()}
+}
 async function evPrint(id,modus='intern'){
   const r=S.records.find(x=>x.id===id),d=r.details||{},ks=d.kassen||[],s=kSum(r),P={},ext=modus==='extern';dlg.close();
   let st=null,stErr='';
@@ -371,7 +393,7 @@ async function evPrint(id,modus='intern'){
   const pp=evPers(st,d),hasP=pp.rows.length>0;
   const same=S.records.filter(x=>x.category==='event'&&x.due_date===r.due_date).length,pers=hasP&&!(pp.ohne&&d.kosten_personal!=null&&d.kosten_personal!=='')?pp.lohn:(+d.kosten_personal||0);
   const pAnz=hasP?pp.n:(+d.personal_anzahl||0),pStd=hasP?pp.h:(+d.personalstunden||0);
-  const tabs=`<div class="bar"><button class="btn sec" onclick="route()">‹ Zurück</button><button class="btn ${ext?'sec':''}" onclick="evPrint('${id}')">Interne Abrechnung</button><button class="btn ${ext?'':'sec'}" onclick="evPrint('${id}','extern')">Für Veranstalter</button><button class="btn" onclick="print()">Drucken / als PDF speichern</button></div>`;
+  const tabs=`<div class="bar"><button class="btn sec" onclick="route()">‹ Zurück</button><button class="btn ${ext?'sec':''}" onclick="evPrint('${id}')">Interne Abrechnung</button><button class="btn ${ext?'':'sec'}" onclick="evPrint('${id}','extern')">Für Veranstalter</button><button class="btn" onclick="evPdf('${id}','${modus}')">PDF erstellen</button><button class="btn sec" onclick="print()">Drucken</button></div>`;
   if(ext){const n=k=>+d[k]||0,ein=s.netto+n('ein_ticket')+n('ein_karte')+n('ein_twint')+n('ein_bar'),aus=n('kosten_getraenke')+n('kosten_weitere'),row=(l,v)=>`<tr><td>${l}</td><td class="num r">${v}</td></tr>`;
     return M(`${tabs}<div class="card"><p class="mut" style="margin:0">Le Portier N°35 · Aarbergergasse 35 · 3011 Bern</p><h1>Eventabrechnung: ${esc(r.title)}</h1><p class="mut">Datum der Veranstaltung ${fd(r.due_date)} · erstellt am ${fd(today())}</p>
     <h2>Angaben zur Veranstaltung</h2><table>${EVF.filter(([k,,num])=>!num&&d[k]&&k!=='verantwortlich').map(([k,l])=>row(esc(l),esc(d[k]))).join('')}${pAnz||pStd?row('Personal',(pAnz?pAnz+' Mitarbeitende, ':'')+(Math.round(pStd*100)/100)+' Std.'):''}</table>

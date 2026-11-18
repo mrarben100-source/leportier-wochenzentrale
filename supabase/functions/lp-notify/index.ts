@@ -73,7 +73,20 @@ Deno.serve(async (req) => {
   }
 
   // --- Lauf ohne Anmeldung (Cron) ---
-  const res = { neue_anfragen: 0, gesendet: 0, fehler: 0 };
+  const res = { neue_anfragen: 0, gesendet: 0, fehler: 0, warteschlange: 0 };
+  // Warteschlange (lp_push_queue, nur Server): einzelne Mitteilungen, z. B. Tests oder Hinweise
+  {
+    const { data: q } = await sb.from("lp_push_queue").select("*").is("sent_at", null).order("created_at").limit(20);
+    if (q?.length) {
+      const { data: alle } = await sb.from("lp_push_subs").select("id,sub,topics,user_id");
+      for (const m of q) {
+        const ziel = (alle || []).filter((s: any) => (!m.user_id || s.user_id === m.user_id) && (!m.topic || (s.topics || []).includes(m.topic)));
+        const r = await senden(sb, ziel, { title: m.title, body: m.body, url: m.url, tag: "q-" + m.id });
+        await sb.from("lp_push_queue").update({ sent_at: new Date().toISOString(), sent_count: r.ok }).eq("id", m.id);
+        res.warteschlange += r.ok;
+      }
+    }
+  }
   const u = Deno.env.get("HOSTPOINT_USER"), p = Deno.env.get("HOSTPOINT_PASS");
   const konten = u && p ? [{ u, p, pre: "", pf: "info" }] : [];
   const cu = Deno.env.get("CONTACT_USER"), cp = Deno.env.get("CONTACT_PASS");

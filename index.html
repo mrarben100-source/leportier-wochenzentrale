@@ -138,7 +138,7 @@ async function boot(){
   const {data:m}=await sb.from('lp_members').select('role,display_name').eq('user_id',S.user.id).maybeSingle();
   if(!m||m.role==='pending')return pendingView(m);
   S.role=m.role;S.name=m.display_name||S.user.email;
-  await load();shell();route();live();autoMail();autoBexio();setInterval(autoBexio,1800000);setInterval(autoMail,120000);calLoad(true);setInterval(()=>calLoad(true),900000);
+  await load();shell();route();live();setTimeout(pushAsk,1500);autoMail();autoBexio();setInterval(autoBexio,1800000);setInterval(autoMail,120000);calLoad(true);setInterval(()=>calLoad(true),900000);
 }
 function pendingView(m){
   root.innerHTML=`<div class="login"><div class="card"><h1>Zugang noch nicht freigeschaltet</h1><p>Angemeldet als <b>${esc(S.user.email)}</b>.</p>
@@ -203,6 +203,19 @@ async function pushRefresh(){const el=$('#pushbox');if(!el)return;
   const sub=await pushSub();let row=null;if(sub){const {data}=await sb.from('lp_push_subs').select('id,topics').eq('endpoint',sub.endpoint).maybeSingle();row=data}
   if(!sub||!row){el.innerHTML=`<p class="sm">Bekomme eine Mitteilung aufs Handy, sobald eine neue Anfrage, Clubmiete-Anfrage oder Offerte eintrifft (info@ und contact@), auch wenn die App geschlossen ist.${Notification.permission==='denied'?' <b style="color:var(--red)">Mitteilungen sind für diese App blockiert – in den Einstellungen des Handys erlauben.</b>':''}</p><div class="bar"><button class="btn" onclick="pushOn()">Mitteilungen auf diesem Gerät aktivieren</button></div>`;return}
   el.innerHTML=`<p class="sm"><span class="b erledigt">Aktiv</span> Mitteilungen auf diesem Gerät für:</p>${Object.entries(PUSHT).map(([k,l])=>`<label class="sm" style="display:flex;gap:8px;align-items:center;padding:4px 0"><input type="checkbox" ${row.topics?.includes(k)?'checked':''} onchange="pushTopic('${row.id}','${k}',this.checked)"> ${l}</label>`).join('')}<div class="bar"><button class="btn sec" onclick="pushTest()">Test-Mitteilung senden</button><button class="btn sec" onclick="pushOff()">Auf diesem Gerät ausschalten</button></div>`}
+/* Beim Öffnen fragen, solange Mitteilungen auf diesem Gerät nicht aktiv sind («Später» = 3 Tage Ruhe) */
+async function pushAsk(){
+  try{
+    let later=0;try{later=+localStorage.getItem('pushLater')||0}catch(e){}
+    if(Date.now()<later||dlg.open)return;
+    if(!pushOk()){if(isIOS()&&!isStandalone()){dlg.innerHTML=`<form method="dialog"><h2>Mitteilungen aufs Handy</h2><p>Damit du bei neuen Anfragen, Clubmiete und Offerten sofort eine Mitteilung bekommst, die Wochenzentrale zuerst zum <b>Home-Bildschirm</b> hinzufügen: in Safari unten auf <b>Teilen</b> → <b>«Zum Home-Bildschirm»</b>. Danach die App von dort öffnen.</p><div class="bar"><button class="btn" onclick="pushLater(7)">Verstanden</button></div></form>`;dlg.showModal()}return}
+    if(Notification.permission==='denied')return;
+    const sub=await pushSub();if(sub){const {data}=await sb.from('lp_push_subs').select('id').eq('endpoint',sub.endpoint).maybeSingle();if(data)return}
+    dlg.innerHTML=`<form method="dialog"><h2>Mitteilungen aktivieren?</h2><p>Bekomme auf diesem Gerät sofort eine Mitteilung bei <b>neuen Anfragen, Clubmiete und Offerten</b> (info@ und contact@) sowie bei <b>Mahnungen</b> – auch wenn die App geschlossen ist.</p><p class="sm mut">Kostenlos, ohne Telefonnummer. Jederzeit auf der Übersicht unter «Mitteilungen auf diesem Gerät» änderbar.</p><div class="bar"><button class="btn sec" onclick="pushLater(3)">Später</button><button class="btn" onclick="dlg.close();pushOn()">Aktivieren</button></div></form>`;
+    dlg.showModal();
+  }catch(e){console.warn(e)}
+}
+function pushLater(t){try{localStorage.setItem('pushLater',String(Date.now()+t*864e5))}catch(e){}dlg.close()}
 async function pushOn(){
   try{const perm=await Notification.requestPermission();if(perm!=='granted')return toast('Mitteilungen wurden nicht erlaubt',1);
     const reg=await navigator.serviceWorker.register('sw.js');await navigator.serviceWorker.ready;

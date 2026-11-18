@@ -192,8 +192,31 @@ function route(){
 }
 const M=h=>{const m=$('#main');m.innerHTML=h;try{cards(m)}catch(e){}return h};
 /* Neueste Version laden, ohne die Home-Bildschirm-App zu löschen: Zwischenspeicher leeren und mit neuer Adresse neu laden */
+/* ---------- Push-Mitteilungen (Web Push, ohne Telefonnummer) ---------- */
+const PUSHT={anfragen:'Neue Anfragen, Clubmiete, Offerten',mahnungen:'Mahnungen',rechnungen:'Neue Rechnungen aus Mails'};
+const pushOk=()=>'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;
+const isIOS=()=>/iphone|ipad|ipod/i.test(navigator.userAgent),isStandalone=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const b64u=s=>{const p='='.repeat((4-s.length%4)%4),b=atob((s+p).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(b,c=>c.charCodeAt(0))};
+async function pushSub(){try{const r=await navigator.serviceWorker.getRegistration('sw.js')||await navigator.serviceWorker.getRegistration();return r?await r.pushManager.getSubscription():null}catch(e){return null}}
+async function pushRefresh(){const el=$('#pushbox');if(!el)return;
+  if(!pushOk())return el.innerHTML=isIOS()&&!isStandalone()?'<p class="sm">Auf dem iPhone funktionieren Mitteilungen nur in der App vom <b>Home-Bildschirm</b>: In Safari auf «Teilen» → «Zum Home-Bildschirm», dann die Wochenzentrale von dort öffnen (iOS 16.4 oder neuer).</p>':'<p class="sm mut">Dieser Browser unterstützt keine Push-Mitteilungen.</p>';
+  const sub=await pushSub();let row=null;if(sub){const {data}=await sb.from('lp_push_subs').select('id,topics').eq('endpoint',sub.endpoint).maybeSingle();row=data}
+  if(!sub||!row){el.innerHTML=`<p class="sm">Bekomme eine Mitteilung aufs Handy, sobald eine neue Anfrage, Clubmiete-Anfrage oder Offerte eintrifft (info@ und contact@), auch wenn die App geschlossen ist.${Notification.permission==='denied'?' <b style="color:var(--red)">Mitteilungen sind für diese App blockiert – in den Einstellungen des Handys erlauben.</b>':''}</p><div class="bar"><button class="btn" onclick="pushOn()">Mitteilungen auf diesem Gerät aktivieren</button></div>`;return}
+  el.innerHTML=`<p class="sm"><span class="b erledigt">Aktiv</span> Mitteilungen auf diesem Gerät für:</p>${Object.entries(PUSHT).map(([k,l])=>`<label class="sm" style="display:flex;gap:8px;align-items:center;padding:4px 0"><input type="checkbox" ${row.topics?.includes(k)?'checked':''} onchange="pushTopic('${row.id}','${k}',this.checked)"> ${l}</label>`).join('')}<div class="bar"><button class="btn sec" onclick="pushTest()">Test-Mitteilung senden</button><button class="btn sec" onclick="pushOff()">Auf diesem Gerät ausschalten</button></div>`}
+async function pushOn(){
+  try{const perm=await Notification.requestPermission();if(perm!=='granted')return toast('Mitteilungen wurden nicht erlaubt',1);
+    const reg=await navigator.serviceWorker.register('sw.js');await navigator.serviceWorker.ready;
+    const {data,error}=await sb.functions.invoke('lp-notify',{body:{action:'key'}});if(error||!data?.publicKey)throw new Error(data?.error||error?.message||'Schlüssel fehlt');
+    const sub=await reg.pushManager.getSubscription()||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(data.publicKey)});
+    const j=sub.toJSON(),dev=(isIOS()?'iPhone':/android/i.test(navigator.userAgent)?'Android':'Computer')+' · '+S.name;
+    const {error:e2}=await sb.from('lp_push_subs').upsert({endpoint:j.endpoint,sub:j,user_id:S.user.id,geraet:dev},{onConflict:'endpoint'});if(e2)throw e2;
+    toast('Mitteilungen aktiviert');pushRefresh();
+  }catch(e){console.warn(e);toast('Aktivieren fehlgeschlagen: '+(e.message||e),1)}}
+async function pushTopic(id,k,on){const {data}=await sb.from('lp_push_subs').select('topics').eq('id',id).single();const t=new Set(data?.topics||[]);on?t.add(k):t.delete(k);const {error}=await sb.from('lp_push_subs').update({topics:[...t]}).eq('id',id);error?fail(error):toast('Gespeichert')}
+async function pushTest(){const {data,error}=await sb.functions.invoke('lp-notify',{body:{action:'test'}});if(error||data?.error)return toast('Test fehlgeschlagen: '+(data?.error||error.message),1);toast(data.ok?'Test-Mitteilung gesendet – sollte gleich erscheinen':'Kein aktives Gerät gefunden',!data.ok)}
+async function pushOff(){const sub=await pushSub();if(sub){await sb.from('lp_push_subs').delete().eq('endpoint',sub.endpoint);try{await sub.unsubscribe()}catch(e){}}toast('Mitteilungen auf diesem Gerät ausgeschaltet');pushRefresh()}
 async function appUpdate(){
-  try{if('caches' in window)for(const k of await caches.keys())await caches.delete(k);if(navigator.serviceWorker)for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister()}catch(e){}
+  try{if('caches' in window)for(const k of await caches.keys())await caches.delete(k);if(navigator.serviceWorker)for(const r of await navigator.serviceWorker.getRegistrations())if(!/\/sw\.js$/.test(r.active?.scriptURL||r.installing?.scriptURL||''))await r.unregister()}catch(e){}
   location.replace(location.pathname+'?v='+Date.now()+location.hash);
 }
 /* Prüfen, ob eine neue Version online ist (beim Zurückkehren in die App und alle 5 Minuten) */
@@ -269,7 +292,8 @@ function vHome(){
    ${admin()?`<div class="card"><h2>Kalender: nächste Termine</h2>${calBox(8)}<p class="sm"><a href="#kalender">Zum Kalender</a></p></div>`:''}
    <div class="card"><h2>Aktivitäten</h2>${S.changes.slice(0,10).map(c=>{const a=c.after_value||{},b=c.before_value||{};return `<div class="sm" style="padding:5px 0;border-bottom:1px solid var(--line)"><span class="mut">${new Date(c.changed_at).toLocaleString('de-CH',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span> · <b>${esc(nameOf(c.actor_id))}</b> ${({insert:'hat angelegt',update:'hat geändert',delete:'hat gelöscht'})[c.action]||esc(c.action)}: ${esc(a.title||b.title||a.file_name||b.file_name||a.description||b.description||a.display_name||b.display_name||'')}</div>`}).join('')||'<p class="mut sm">Noch keine Änderungen.</p>'}<p class="sm"><a href="#protokoll">Ganzes Protokoll</a></p></div>
    <div class="card"><h2>E-Mail-Posteingang</h2>${autoBox()}${mailRecent()}<p class="mut sm"><a href="#email">Posteingang öffnen</a></p></div>
-  </div>`);
+   <div class="card"><h2>Mitteilungen auf diesem Gerät</h2><div id="pushbox"><p class="mut sm">Wird geprüft…</p></div></div>
+  </div>`);setTimeout(pushRefresh,0);
 }
 const konto=t=>/^\[AG\]/.test(t.notes||'')?'AG':'GmbH',intern=t=>(t.category||'').startsWith('Interner Transfer');
 function months(){const m={};S.tx.forEach(t=>{if(t.review_state==='duplikat'||konto(t)==='AG'||intern(t))return;const k=t.booking_date.slice(0,7);m[k]??={in:0,out:0};+t.amount_chf>=0?m[k].in+=+t.amount_chf:m[k].out-=+t.amount_chf});return m}
@@ -930,12 +954,12 @@ const MK={
   auto:/^(automatische antwort|auto(?:matic)? ?reply|abwesenheit|out of office|r[ée]ponse automatique|unzustellbar|undeliverable|delivery status)/i,
   offerte:/offerte|\bangebot|quotation|\bquote\b|\bdevis\b|kostenvoranschlag|preisliste|konditionen|unverbindlich(?:e|es)? (?:angebot|offerte)/i,
   anfrage:/club ?miete|club (?:mieten|buchen|reservieren)|clubvermietung|vermietung|(?:club|lokal|location|raum|bar) (?:zu )?mieten|exklusiv(?:e|es)? (?:miete|nutzung)|privatparty|private party|polterabend|hochzeit|weihnachtsessen|weihnachtsfeier|firmenfeier|teamevent|apéro|apero|verfügbarkeit|freie[rn]? (?:termin|datum)|zusammenarbeit|kooperation|partnerschaft|sponsoring|sponsor|booking|buchungsanfrage|\banfrage\b|reservation|reservierung|location (?:mieten|miete|buchen)|raum ?miete|eventlocation|event bei (?:euch|ihnen)|firmenanlass|firmenevent|privatanlass|geburtstag(?:sfeier|sparty)|auftritt|auftreten|\bdj\b|künstler|artist|collaboration|partnership|cooperation|influencer|promotion|veranstalt(?:en|ung) bei/i,
-  werbung:/newsletter|abmelden|unsubscribe|no-?reply|noreply|mailchimp|sendinblue|brevo|hubspot|linkedin|facebookmail|google\.com|apple\.com/i};
+  werbung:/newsletter|abmelden|unsubscribe|no-?reply|noreply|wordpress|please moderate|medienmitteilung|pressemitteilung|press release|media release|mailchimp|sendinblue|brevo|hubspot|linkedin|facebookmail|google\.com|apple\.com/i};
 function mailKind(m){
   const head=(m.subject||'')+' '+(m.attachments||[]).map(a=>a.name).join(' '),all=head+' '+(m.snippet||''),from=(m.from_address||'')+' '+(m.from_name||'');
   if(MK.auto.test((m.subject||'').trim()))return null;
   if(MK.rechnung.test(head))return 'rechnung';
-  if(MK.werbung.test(from)||/unsubscribe|abmelden|newsletter/i.test(m.snippet||''))return null;
+  if(MK.werbung.test(from)||/wordpress|please moderate|medienmitteilung|pressemitteilung|press release/i.test(m.subject||'')||/unsubscribe|abmelden|newsletter/i.test(m.snippet||''))return null;
   if(MK.offerte.test(head)||(MK.offerte.test(m.snippet||'')&&!MK.anfrage.test(head)))return 'offerte';
   if(MK.anfrage.test(all))return 'anfrage';
   return null;

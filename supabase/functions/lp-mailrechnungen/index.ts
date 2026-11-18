@@ -106,14 +106,19 @@ Deno.serve(async (req) => {
     const { data } = await sb.from("lp_bank_tx").select("id,booking_date,amount_chf,description,notes,record_id,review_state").neq("review_state", "duplikat").is("record_id", null).range(f, f + 999);
     tx.push(...(data || [])); if (!data || data.length < 1000) break;
   }
-  const client = new ImapFlow({ host: Deno.env.get("HOSTPOINT_IMAP_HOST") || "imap.mail.hostpoint.ch", port: 993, secure: true, auth: { user: u, pass: p }, logger: false });
+  const konten = [{ u, p, pre: "" }];
+  const cu = Deno.env.get("CONTACT_USER"), cp = Deno.env.get("CONTACT_PASS");
+  if (cu && cp) konten.push({ u: cu.trim(), p: cp, pre: "contact/" });
+  for (const konto of konten) {
+  if (Date.now() - t0 > 100000 || n >= PROLAUF) break;
+  const client = new ImapFlow({ host: Deno.env.get("HOSTPOINT_IMAP_HOST") || "imap.mail.hostpoint.ch", port: 993, secure: true, auth: { user: konto.u, pass: konto.p }, logger: false });
   await client.connect();
   try {
     const boxes = (await client.list()).filter((b: any) => !b.flags?.has?.("\\Noselect") && !SKIPBOX.test(b.path) && !["\\Trash", "\\Junk", "\\Drafts"].includes(b.specialUse));
     for (const box of boxes) {
       if (Date.now() - t0 > 100000 || n >= PROLAUF) break; // Rest im nächsten Lauf
       const rechOrdner = /rechnung/i.test(box.path);
-      res.ordner.push(box.path);
+      res.ordner.push(konto.pre + box.path);
       const lock = await client.getMailboxLock(box.path, { readOnly: true });
       try {
         const uids = ((await client.search({ since: SEIT }, { uid: true })) || []) as number[];
@@ -125,7 +130,7 @@ Deno.serve(async (req) => {
           const txt = subj + " " + P.map((x) => x.name).join(" ");
           if (NICHT.test(txt)) continue;
           if (!rechOrdner && (!RE.test(txt) || BESTELL.test(subj))) continue;
-          const mid = hash(e.messageId || box.path + ":" + m.uid);
+          const mid = hash(e.messageId || konto.pre + box.path + ":" + m.uid);
           const files = P.filter((x) => !docIds.has("mail_" + mid + "_" + safe(x.name))).slice(0, 3);
           if (!files.length) continue;
           kand.push({ uid: m.uid, e, subj, mid, files, date: e.date ? new Date(e.date) : new Date() });
@@ -136,6 +141,7 @@ Deno.serve(async (req) => {
           if (Date.now() - t0 > 110000 || n >= PROLAUF) break;
           const from = k.e.from?.[0] || {}, to = k.e.to?.[0] || {}, aus = dom(from.address) === ownDom, partner = aus ? to : from;
           const lf = firma(partner.name, partner.address), d = iso(k.date);
+          if (!partner.address || dom(partner.address) === ownDom) continue; // interne Mails (info@ ↔ contact@)
           for (const f of k.files) {
             const id = "mail_" + k.mid + "_" + safe(f.name);
             try {
@@ -149,7 +155,7 @@ Deno.serve(async (req) => {
               const cat = aus ? "Kundenrechnungen" : "Lieferantenrechnungen", path = (aus ? "kundenrechnungen/" : "lieferantenrechnungen/") + crypto.randomUUID().slice(0, 8) + "-" + safe(f.name);
               const up = await sb.storage.from("lp-dokumente").upload(path, b, { contentType: "application/pdf" });
               if (up.error) throw up.error;
-              const src = (aus ? "E-Mail an " : "E-Mail von ") + lf + " <" + (partner.address || "") + "> vom " + d.split("-").reverse().join(".") + " («" + k.subj.slice(0, 120) + "», Ordner " + box.path + ")";
+              const src = (aus ? "E-Mail an " : "E-Mail von ") + lf + " <" + (partner.address || "") + "> vom " + d.split("-").reverse().join(".") + " («" + k.subj.slice(0, 120) + "», Ordner " + konto.pre + box.path + ")";
               const di = await sb.from("lp_documents").insert({ library_file_id: id, file_name: f.name, category: cat, state: "in_supabase", storage_path: path, doc_date: d, modified_on: iso(new Date()), size_bytes: b.length, notes: src.slice(0, 300), content_text: t || null, content_at: new Date().toISOString() });
               if (di.error) throw di.error;
               docSig.add(f.name + "|" + b.length); res.archiviert++;
@@ -172,7 +178,7 @@ Deno.serve(async (req) => {
                 await sb.from("lp_documents").update({ record_id: rec.id }).eq("library_file_id", id);
                 mahn ? res.mahnungen++ : res.verknuepft++;
               } else {
-                const det: any = { quelle: "email", firma: lf, absender: partner.address || null, ordner: box.path, rechnung_nr: nr, mail_betreff: k.subj.slice(0, 200), betrag_zeile: tot?.zeile || null, ...(aus ? { art: "kundenrechnung" } : {}), ...(mahn ? { mahnung_am: d } : {}) };
+                const det: any = { quelle: "email", firma: lf, absender: partner.address || null, ordner: konto.pre + box.path, rechnung_nr: nr, mail_betreff: k.subj.slice(0, 200), betrag_zeile: tot?.zeile || null, ...(aus ? { art: "kundenrechnung" } : {}), ...(mahn ? { mahnung_am: d } : {}) };
                 const title = (aus ? "Kundenrechnung " : mahn ? "Mahnung " : "Rechnung ") + lf + (nr ? " – " + nr : "");
                 const ins = await sb.from("lp_records").insert({ source_key: "mailrechnung-" + k.mid + "-" + hash(f.name), category: "zahlung", title, status: aus ? "offen" : "zu_pruefen", priority: "mittel", amount_chf: tot?.betrag ?? null, due_date: due, responsible: "Arben", evidence: f.name,
                   notes: `Automatisch aus ${src}. Betrag${due ? " und Fälligkeit" : ""} aus dem PDF gelesen (${tot ? "«" + tot.zeile + "»" : "nicht erkannt"}) – bitte prüfen. Keine Zahlung ausgelöst, nichts in Bexio gebucht.`, details: det }).select("id,title,status,amount_chf,source_key,details,notes,category").single();
@@ -197,9 +203,9 @@ Deno.serve(async (req) => {
       } finally { lock.release(); }
     }
   } catch (e) {
-    console.warn("lp-mailrechnungen", String((e as Error)?.message ?? e));
-    return json({ ...res, error: String((e as any)?.message || e) }, 500);
+    console.warn("lp-mailrechnungen", konto.u, String((e as Error)?.message ?? e)); res.fehler++;
   } finally { await client.logout().catch(() => {}); }
+  }
   res.ordner = res.ordner.length; res.fertig = n < PROLAUF; // nur Zähler zurückgeben
   return json(res);
 });

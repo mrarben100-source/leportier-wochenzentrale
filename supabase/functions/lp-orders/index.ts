@@ -68,12 +68,16 @@ Deno.serve(async (req) => {
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const res = { gesendet: 0, bestaetigungen: 0, neu: 0, aktualisiert: 0, ohne_betrag: 0, fehler: 0, ordner: "" };
   const own = u.toLowerCase(), ownDom = dom(u);
-  const client = new ImapFlow({ host: Deno.env.get("HOSTPOINT_IMAP_HOST") || "imap.mail.hostpoint.ch", port: 993, secure: true, auth: { user: u, pass: p }, logger: false });
+  const konten = [{ u, p }];
+  const cu = Deno.env.get("CONTACT_USER"), cp = Deno.env.get("CONTACT_PASS");
+  if (cu && cp) konten.push({ u: cu.trim(), p: cp });
+  for (const konto of konten) {
+  const client = new ImapFlow({ host: Deno.env.get("HOSTPOINT_IMAP_HOST") || "imap.mail.hostpoint.ch", port: 993, secure: true, auth: { user: konto.u, pass: konto.p }, logger: false });
   await client.connect();
   try {
     const boxes = await client.list();
     const sent = boxes.find((b: any) => b.specialUse === "\\Sent") || boxes.find((b: any) => /^(inbox\.)?(sent|gesendet|gesendete)/i.test(b.path));
-    res.ordner = "INBOX" + (sent ? "+" + sent.path : "");
+    res.ordner += (res.ordner ? ", " : "") + konto.u.split("@")[0] + ":INBOX" + (sent ? "+" + sent.path : "");
     const since = SEIT;
     const lieferDom = new Set<string>(), known = new Set<string>();
     const keyOf = (mid: string) => "mail-bestellung-" + String(mid).replace(/[<>\s"\\,()]/g, "").slice(0, 180);
@@ -135,7 +139,7 @@ Deno.serve(async (req) => {
           if (typ === "gesendet" && (REPLY.test(subj) || !BESTELL.test(subj))) continue;
           if (typ === "bestaetigung" && !(lieferDom.has(dom(partner.address)) && !REPLY.test(subj) && (BEST.test(subj) || /auftragsbest|bestellbest/i.test(subj)))) continue;
           if (typ === "gesendet") lieferDom.add(dom(partner.address));
-          const key = keyOf(e.messageId || box + ":" + m.uid);
+          const key = keyOf(e.messageId || konto.u + ":" + box + ":" + m.uid);
           if (known.has(key)) continue;
           found.push({ typ, box, uid: m.uid, subj, partner, date: e.date ? new Date(e.date) : new Date(), key, bs: m.bodyStructure });
         }
@@ -159,8 +163,8 @@ Deno.serve(async (req) => {
       } finally { lock.release(); }
     }
   } catch (e) {
-    console.warn("lp-orders", String((e as Error)?.message ?? e));
-    return json({ ...res, error: String((e as any)?.message || e) }, 500);
+    console.warn("lp-orders", konto.u, String((e as Error)?.message ?? e)); res.fehler++;
   } finally { await client.logout().catch(() => {}); }
+  }
   return json(res);
 });

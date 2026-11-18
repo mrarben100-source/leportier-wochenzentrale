@@ -3,6 +3,8 @@ import { ImapFlow } from "npm:imapflow@1.0.171";
 import { Buffer } from "node:buffer";
 
 // Hostpoint-Postfach, nur lesend. Zugangsdaten ausschliesslich aus Secrets.
+// v6: liest zusätzlich ein zweites Postfach (Secrets CONTACT_USER / CONTACT_PASS, z. B. contact@).
+//     UIDs aus dem zweiten Postfach haben das Präfix «c:», damit sie sich nicht mit info@ überschneiden.
 // v5: liefert pro E-Mail zusätzlich einen kurzen Textauszug (snippet), damit das
 // Dashboard Offerten und Anfragen erkennen kann. Das Postfach wird schreibgeschützt
 // geöffnet; nichts wird gelesen-markiert, verändert, gelöscht oder gesendet.
@@ -37,25 +39,10 @@ const strip = (s: string) =>
 const MAX = 10 * 1024 * 1024;
 const SNIP = 1500;
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  try {
-    const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
-    });
-    const { data: { user } } = await sb.auth.getUser();
-    if (!user) return json({ error: "Nicht angemeldet" }, 401);
-    const { data: m } = await sb.from("lp_members").select("role").eq("user_id", user.id).maybeSingle();
-    if (m?.role !== "admin") return json({ error: "Keine Berechtigung" }, 403);
-
-    const u = Deno.env.get("HOSTPOINT_USER"), p = Deno.env.get("HOSTPOINT_PASS");
-    if (!u || !p) return json({ error: "not_configured" });
-    const body = await req.json().catch(() => ({}));
-    const limit = Math.min(Math.max(+body.limit || 30, 1), 50);
-
+async function lese(k: { u: string; p: string; pf: string; pre: string }, body: any, limit: number): Promise<any> {
     const client = new ImapFlow({
       host: Deno.env.get("HOSTPOINT_IMAP_HOST") || "imap.mail.hostpoint.ch",
-      port: 993, secure: true, auth: { user: u, pass: p }, logger: false,
+      port: 993, secure: true, auth: { user: k.u, pass: k.p }, logger: false,
     });
     await client.connect();
     const lock = await client.getMailboxLock("INBOX", { readOnly: true });
@@ -79,7 +66,7 @@ Deno.serve(async (req) => {
           files.push({ name: a.name, type, size: buf.length, b64: buf.toString("base64") });
         }
         const f = msg.envelope?.from?.[0];
-        return json({ uid: +uid, subject: msg.envelope?.subject ?? "", date: msg.envelope?.date ?? null, from_name: f?.name ?? "", from_address: f?.address ?? "", files });
+        return json({ uid: k.pre + uid, subject: msg.envelope?.subject ?? "", date: msg.envelope?.date ?? null, from_name: f?.name ?? "", from_address: f?.address ?? "", files });
       }
       const total = (client.mailbox as any).exists as number;
       const out: any[] = [];
@@ -90,7 +77,7 @@ Deno.serve(async (req) => {
           const plain = textPart(msg.bodyStructure, "text/plain"), html = plain ? null : textPart(msg.bodyStructure, "text/html");
           if (body.snippets !== false && (plain || html)) parts.push({ i: out.length, uid: msg.uid, part: (plain || html)!, html: !plain });
           out.push({
-            uid: msg.uid,
+            uid: k.pre + msg.uid, postfach: k.pf,
             date: msg.envelope?.date ?? null,
             subject: msg.envelope?.subject ?? "",
             from_name: f?.name ?? "",
@@ -111,11 +98,44 @@ Deno.serve(async (req) => {
           } catch (_) { /* Auszug ist optional */ }
         }
       }
-      return json({ mailbox: u, total, messages: out.reverse() });
+      return { mailbox: k.u, total, messages: out.reverse() };
     } finally {
       lock.release();
       await client.logout().catch(() => {});
     }
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  try {
+    const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+    });
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) return json({ error: "Nicht angemeldet" }, 401);
+    const { data: m } = await sb.from("lp_members").select("role").eq("user_id", user.id).maybeSingle();
+    if (m?.role !== "admin") return json({ error: "Keine Berechtigung" }, 403);
+
+    const u = Deno.env.get("HOSTPOINT_USER"), p = Deno.env.get("HOSTPOINT_PASS");
+    if (!u || !p) return json({ error: "not_configured" });
+    const body = await req.json().catch(() => ({}));
+    const limit = Math.min(Math.max(+body.limit || 30, 1), 50);
+
+    const konten = [{ u, p, pf: "info", pre: "" }];
+    const cu = Deno.env.get("CONTACT_USER"), cp = Deno.env.get("CONTACT_PASS");
+    if (cu && cp) konten.push({ u: cu, p: cp, pf: "contact", pre: "c:" });
+    if (body.action === "attachments") {
+      const raw = String(body.uid ?? ""), k = raw.startsWith("c:") ? konten.find((x) => x.pf === "contact") : konten[0];
+      if (!k) return json({ error: "Postfach contact@ ist nicht eingerichtet" }, 400);
+      return await lese(k, { ...body, uid: raw.replace(/^c:/, "") }, limit);
+    }
+    const teile: any[] = [];
+    for (const k of konten) {
+      try { teile.push(await lese(k, body, limit)); }
+      catch (e) { teile.push({ fehler: k.pf + ": " + String((e as any)?.responseText || (e as any)?.message || e), messages: [], total: 0, mailbox: k.u }); }
+    }
+    const messages = teile.flatMap((t) => t.messages || []).sort((a, b) => (b.date ? +new Date(b.date) : 0) - (a.date ? +new Date(a.date) : 0)).slice(0, limit * konten.length);
+    return json({ mailbox: konten.map((k) => k.u).join(" + "), total: teile.reduce((a, t) => a + (t.total || 0), 0), postfaecher: teile.map((t, i) => ({ postfach: konten[i].pf, mailbox: konten[i].u, total: t.total || 0, fehler: t.fehler || null })), messages });
   } catch (e) {
     return json({ error: String((e as any)?.responseText || (e as any)?.message || e) }, 500);
   }

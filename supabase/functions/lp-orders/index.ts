@@ -7,7 +7,8 @@ import { extractText, getDocumentProxy } from "npm:unpdf@0.12.1";
 // und legt pro Bestellung einen Eintrag in lp_records an (category 'lieferant', details.art 'bestellung').
 // Sicherheit: Postfach wird nur lesend geöffnet (nichts markiert, verschoben, gelöscht, gesendet).
 // Nimmt keine Eingaben an und gibt keine Inhalte zurück – nur Zähler. Aufruf alle 30 Minuten per pg_cron.
-const TAGE = 150, MAXPDF = 5 * 1024 * 1024, MAXTXT = 40000;
+// Jede Mail wird sofort gespeichert; bereits verarbeitete Mails werden ohne Download übersprungen (ein abgebrochener Lauf wird beim nächsten fortgesetzt).
+const SEIT = new Date("2025-08-01T00:00:00Z"), MAXPDF = 5 * 1024 * 1024, MAXTXT = 40000;
 const cors = { "Access-Control-Allow-Origin": "https://mrarben100-source.github.io", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
@@ -67,14 +68,58 @@ Deno.serve(async (req) => {
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const res = { gesendet: 0, bestaetigungen: 0, neu: 0, aktualisiert: 0, ohne_betrag: 0, fehler: 0, ordner: "" };
   const own = u.toLowerCase(), ownDom = dom(u);
-  const client = new ImapFlow({ host: Deno.env.get("HOSTPOINT_IMAP_HOST") || "imap.mail.hostpoint.ch", port: 993, secure: true, auth: { user: u, pass: p }, logger: false });
+  const konten = [{ u, p }];
+  const cu = Deno.env.get("CONTACT_USER"), cp = Deno.env.get("CONTACT_PASS");
+  if (cu && cp) konten.push({ u: cu.trim(), p: cp });
+  for (const konto of konten) {
+  const client = new ImapFlow({ host: Deno.env.get("HOSTPOINT_IMAP_HOST") || "imap.mail.hostpoint.ch", port: 993, secure: true, auth: { user: konto.u, pass: konto.p }, logger: false });
   await client.connect();
   try {
     const boxes = await client.list();
     const sent = boxes.find((b: any) => b.specialUse === "\\Sent") || boxes.find((b: any) => /^(inbox\.)?(sent|gesendet|gesendete)/i.test(b.path));
-    res.ordner = "INBOX" + (sent ? "+" + sent.path : "");
-    const since = new Date(Date.now() - TAGE * 864e5);
-    const found: any[] = [], lieferDom = new Set<string>();
+    res.ordner += (res.ordner ? ", " : "") + konto.u.split("@")[0] + ":INBOX" + (sent ? "+" + sent.path : "");
+    const since = SEIT;
+    const lieferDom = new Set<string>(), known = new Set<string>();
+    const keyOf = (mid: string) => "mail-bestellung-" + String(mid).replace(/[<>\s"\\,()]/g, "").slice(0, 180);
+    for (let from = 0; ; from += 1000) {
+      const { data } = await sb.from("lp_records").select("source_key,details->>bestaetigung_keys,details->>lieferant_domain").eq("category", "lieferant").eq("details->>art", "bestellung").range(from, from + 999);
+      for (const r of (data || []) as any[]) { if (r.source_key) known.add(r.source_key); String(r.bestaetigung_keys || "").split("|").filter(Boolean).forEach((k) => known.add(k)); if (r.lieferant_domain) lieferDom.add(r.lieferant_domain); }
+      if (!data || data.length < 1000) break;
+    }
+    async function handle(f: any) {
+      f.typ === "gesendet" ? res.gesendet++ : res.bestaetigungen++;
+      const key = f.key; known.add(key);
+      const lf = firma(f.partner.name, f.partner.address), d = f.date.toISOString().slice(0, 10), tot = total(f.text || "");
+      const voll = (f.text || "").replace(/\r/g, "").replace(/\n\s*\n+/g, "\n").replace(/[ \t]+/g, " ").trim(), auszug = voll.length > 4500 ? voll.slice(0, 1500) + "\n…\n" + voll.slice(-3000) : voll;
+      if (f.typ === "bestaetigung") {
+        // Stardrinks & Co. teilen eine Bestellung oft auf mehrere Auftragsbestätigungen auf:
+        // alle Bestätigungen bis 14 Tage nach der Bestellung werden zur letzten Bestellung davor gezählt (pro Bestell-Nr. die neueste).
+        const von = new Date(+f.date - 14 * 864e5).toISOString().slice(0, 10);
+        const { data: kand } = await sb.from("lp_records").select("id,notes,details,amount_chf").eq("category", "lieferant").eq("details->>art", "bestellung").eq("details->>lieferant_domain", dom(f.partner.address)).gte("details->>bestelldatum", von).lte("details->>bestelldatum", d).order("details->>bestelldatum", { ascending: false }).limit(1);
+        const k = kand?.[0];
+        const nr = (f.text || "").match(/Bestell-?\s*Nr\.?\s*:?\s*(\d{5,})/i)?.[1] || f.subj.match(/(\d{7,})/)?.[1] || key;
+        if (k) {
+        const B: Record<string, any> = { ...(k.details?.bestaetigungen || {}) };
+        const keys = (k.details?.bestaetigung_keys || "|") + key + "|";
+        if (tot) B[nr] = { betrag: tot.betrag, datum: d, zeile: tot.zeile };
+        const sum = Math.round(Object.values(B).reduce((a: number, x: any) => a + (+x.betrag || 0), 0 as number) * 100) / 100;
+        const note = tot ? `\nBESTÄTIGUNG ${d} (Nr. ${nr}): CHF ${tot.betrag.toFixed(2)} («${tot.zeile}»)` + (Object.keys(B).length > 1 ? ` – Total aller Bestätigungen CHF ${sum.toFixed(2)}.` : ".") : `\nBESTÄTIGUNG ${d} («${f.subj.slice(0, 80)}»): erhalten, Betrag nicht automatisch erkannt – bitte im Mail nachsehen.`;
+        const auszuege = { ...(k.details?.bestaetigung_auszuege || {}) }; auszuege[nr] = auszug.slice(-2500);
+        await sb.from("lp_records").update({ ...(tot ? { amount_chf: sum, status: "offen" } : {}), notes: (k.notes || "") + note, details: { ...k.details, bestaetigungen: B, bestaetigung_keys: keys, bestaetigung_auszuege: auszuege, ...(Object.keys(B).length ? { betrag_bestaetigt: true, betrag_ungefaehr: false, betrag_quelle: "Bestellbestätigung" } : {}) } }).eq("id", k.id);
+        tot ? res.aktualisiert++ : res.ohne_betrag++;
+        return;
+        }
+        // keine gesendete Bestellung (z. B. telefonisch/Shop): Bestätigung wird zur eigenen Bestellung
+      }
+      if (!tot) res.ohne_betrag++;
+      const nr0 = f.typ === "bestaetigung" ? ((f.text || "").match(/Bestell-?\s*Nr\.?\s*:?\s*(\d{5,})/i)?.[1] || f.subj.match(/(\d{7,})/)?.[1] || key) : null;
+      const det = { art: "bestellung", quelle: "mail", ordner: f.typ === "gesendet" ? "Gesendet" : "Posteingang", lieferant_name: lf, lieferant_domain: dom(f.partner.address), firma: lf, bestelldatum: d, mail_betreff: f.subj.slice(0, 200), positionen_text: auszug || null, betrag_bestaetigt: f.typ === "bestaetigung" && !!tot, betrag_ungefaehr: !(f.typ === "bestaetigung" && tot), betrag_quelle: tot ? (f.typ === "bestaetigung" ? "Bestellbestätigung" : "Bestellmail") : null,
+        ...(nr0 ? { bestaetigungen: tot ? { [nr0]: { betrag: tot.betrag, datum: d, zeile: tot.zeile } } : {}, bestaetigung_keys: "|" + key + "|", bestaetigung_auszuege: { [nr0]: auszug.slice(-2500) }, ohne_bestellmail: true } : {}) };
+      const { error } = await sb.from("lp_records").insert({ source_key: key, category: "lieferant", title: "Bestellung " + lf + " " + d.slice(8) + "." + d.slice(5, 7) + "." + d.slice(0, 4), status: tot ? "offen" : "zu_pruefen", priority: "mittel", amount_chf: tot?.betrag ?? null, responsible: "Arben", evidence: "E-Mail " + (f.typ === "gesendet" ? "(gesendet)" : "(Bestätigung)"),
+        notes: `Automatisch aus E-Mail «${f.subj.slice(0, 120)}» vom ${d} (${f.typ === "gesendet" ? "von dir gesendet an " : "von "}${f.partner.address}). ` + (tot ? `Betrag CHF ${tot.betrag.toFixed(2)} laut ${f.typ === "gesendet" ? "Bestellmail" : "Bestätigung"} («${tot.zeile}»).` : "Kein Betrag im Mail gefunden – ungefährer Betrag wird aus früheren Zahlungen vorgeschlagen.") + " Nichts bestellt oder bezahlt.", details: det });
+      if (error) { res.fehler++; console.warn("lp-orders insert", error.message); } else res.neu++;
+    }
+
     for (const [box, typ] of [[sent?.path, "gesendet"], ["INBOX", "bestaetigung"]] as [string | undefined, string][]) {
       if (!box) continue;
       const lock = await client.getMailboxLock(box, { readOnly: true });
@@ -85,18 +130,22 @@ Deno.serve(async (req) => {
         else for (const d of lieferDom) uids.push(...(((await client.search({ since, from: d }, { uid: true })) || []) as number[]));
         uids = [...new Set(uids)].sort((a, b) => a - b);
         if (!uids.length) continue;
-        for await (const m of client.fetch(uids.slice(-400), { envelope: true, bodyStructure: true, uid: true }, { uid: true })) {
+        const found: any[] = [];
+        for await (const m of client.fetch(uids.slice(-3000), { envelope: true, bodyStructure: true, uid: true }, { uid: true })) {
           const e: any = m.envelope || {}, subj = e.subject || "", from = e.from?.[0] || {}, to = e.to?.[0] || {};
           const partner = typ === "gesendet" ? to : from;
           if (!partner.address || dom(partner.address) === ownDom || partner.address.toLowerCase() === own) continue;
           if (SKIP.test(subj)) continue;
           if (typ === "gesendet" && (REPLY.test(subj) || !BESTELL.test(subj))) continue;
-          if (typ === "bestaetigung" && !(lieferDom.has(dom(partner.address)) && !REPLY.test(subj) && (BEST.test(subj) || /auftragsbest|bestellbest/i.test(subj) || pdfs(m.bodyStructure).length))) continue;
+          if (typ === "bestaetigung" && !(lieferDom.has(dom(partner.address)) && !REPLY.test(subj) && (BEST.test(subj) || /auftragsbest|bestellbest/i.test(subj)))) continue;
           if (typ === "gesendet") lieferDom.add(dom(partner.address));
-          found.push({ typ, box, uid: m.uid, subj, partner, date: e.date ? new Date(e.date) : new Date(), mid: e.messageId || box + ":" + m.uid, bs: m.bodyStructure });
+          const key = keyOf(e.messageId || konto.u + ":" + box + ":" + m.uid);
+          if (known.has(key)) continue;
+          found.push({ typ, box, uid: m.uid, subj, partner, date: e.date ? new Date(e.date) : new Date(), key, bs: m.bodyStructure });
         }
         // Text und PDF der Treffer lesen (gleiches Lock)
-        for (const f of found.filter((x) => x.box === box)) {
+        found.sort((a, b) => +a.date - +b.date);
+        for (const f of found) {
           try {
             const pl = textPart(f.bs, "text/plain"), ht = pl ? null : textPart(f.bs, "text/html");
             let t = "";
@@ -109,45 +158,13 @@ Deno.serve(async (req) => {
             }
             f.text = t.replace(/\u0000/g, "");
           } catch (err) { res.fehler++; console.warn("lp-orders lesen", String((err as Error)?.message ?? err)); f.text = ""; }
+          await handle(f);
         }
       } finally { lock.release(); }
     }
-    // Gesendete Bestellungen zuerst, danach Bestätigungen (diese ergänzen eine passende gesendete Bestellung)
-    found.sort((a, b) => (a.typ === b.typ ? +a.date - +b.date : a.typ === "gesendet" ? -1 : 1));
-    for (const f of found) {
-      f.typ === "gesendet" ? res.gesendet++ : res.bestaetigungen++;
-      const key = "mail-bestellung-" + String(f.mid).replace(/[<>\s"\\,()]/g, "").slice(0, 180);
-      const lf = firma(f.partner.name, f.partner.address), d = f.date.toISOString().slice(0, 10), tot = total(f.text || "");
-      const voll = (f.text || "").replace(/\r/g, "").replace(/\n\s*\n+/g, "\n").replace(/[ \t]+/g, " ").trim(), auszug = voll.length > 4500 ? voll.slice(0, 1500) + "\n…\n" + voll.slice(-3000) : voll;
-      const { data: ex } = await sb.from("lp_records").select("id").or(`source_key.eq."${key}",details->>bestaetigung_keys.like.*|${key}|*`).limit(1);
-      if (ex?.length) continue;
-      if (f.typ === "bestaetigung") {
-        // Stardrinks & Co. teilen eine Bestellung oft auf mehrere Auftragsbestätigungen auf:
-        // alle Bestätigungen bis 14 Tage nach der Bestellung werden zur letzten Bestellung davor gezählt (pro Bestell-Nr. die neueste).
-        const von = new Date(+f.date - 14 * 864e5).toISOString().slice(0, 10);
-        const { data: kand } = await sb.from("lp_records").select("id,notes,details,amount_chf").eq("category", "lieferant").eq("details->>art", "bestellung").eq("details->>lieferant_domain", dom(f.partner.address)).gte("details->>bestelldatum", von).lte("details->>bestelldatum", d).order("details->>bestelldatum", { ascending: false }).limit(1);
-        const k = kand?.[0];
-        if (!k) { res.ohne_betrag++; continue; }
-        const nr = (f.text || "").match(/Bestell-?\s*Nr\.?\s*:?\s*(\d{5,})/i)?.[1] || f.subj.match(/(\d{7,})/)?.[1] || key;
-        const B = { ...(k.details?.bestaetigungen || {}) };
-        const keys = (k.details?.bestaetigung_keys || "|") + key + "|";
-        if (tot) B[nr] = { betrag: tot.betrag, datum: d, zeile: tot.zeile };
-        const sum = Math.round(Object.values(B).reduce((a: number, x: any) => a + (+x.betrag || 0), 0) * 100) / 100;
-        const note = tot ? `\nBESTÄTIGUNG ${d} (Nr. ${nr}): CHF ${tot.betrag.toFixed(2)} («${tot.zeile}»)` + (Object.keys(B).length > 1 ? ` – Total aller Bestätigungen CHF ${sum.toFixed(2)}.` : ".") : `\nBESTÄTIGUNG ${d} («${f.subj.slice(0, 80)}»): erhalten, Betrag nicht automatisch erkannt – bitte im Mail nachsehen.`;
-        const auszuege = { ...(k.details?.bestaetigung_auszuege || {}) }; auszuege[nr] = auszug.slice(-2500);
-        await sb.from("lp_records").update({ ...(tot ? { amount_chf: sum, status: "offen" } : {}), notes: (k.notes || "") + note, details: { ...k.details, bestaetigungen: B, bestaetigung_keys: keys, bestaetigung_auszuege: auszuege, ...(Object.keys(B).length ? { betrag_bestaetigt: true, betrag_ungefaehr: false, betrag_quelle: "Bestellbestätigung" } : {}) } }).eq("id", k.id);
-        tot ? res.aktualisiert++ : res.ohne_betrag++;
-        continue;
-      }
-      if (!tot) res.ohne_betrag++;
-      const det = { art: "bestellung", quelle: "mail", ordner: f.typ === "gesendet" ? "Gesendet" : "Posteingang", lieferant_name: lf, lieferant_domain: dom(f.partner.address), firma: lf, bestelldatum: d, mail_betreff: f.subj.slice(0, 200), positionen_text: auszug || null, betrag_bestaetigt: f.typ === "bestaetigung" && !!tot, betrag_ungefaehr: !(f.typ === "bestaetigung" && tot), betrag_quelle: tot ? (f.typ === "bestaetigung" ? "Bestellbestätigung" : "Bestellmail") : null };
-      const { error } = await sb.from("lp_records").insert({ source_key: key, category: "lieferant", title: "Bestellung " + lf + " " + d.slice(8) + "." + d.slice(5, 7) + "." + d.slice(0, 4), status: tot ? "offen" : "zu_pruefen", priority: "mittel", amount_chf: tot?.betrag ?? null, responsible: "Arben", evidence: "E-Mail " + (f.typ === "gesendet" ? "(gesendet)" : "(Bestätigung)"),
-        notes: `Automatisch aus E-Mail «${f.subj.slice(0, 120)}» vom ${d} (${f.typ === "gesendet" ? "von dir gesendet an " : "von "}${f.partner.address}). ` + (tot ? `Betrag CHF ${tot.betrag.toFixed(2)} laut ${f.typ === "gesendet" ? "Bestellmail" : "Bestätigung"} («${tot.zeile}»).` : "Kein Betrag im Mail gefunden – ungefährer Betrag wird aus früheren Zahlungen vorgeschlagen.") + " Nichts bestellt oder bezahlt.", details: det });
-      if (error) { res.fehler++; console.warn("lp-orders insert", error.message); } else res.neu++;
-    }
   } catch (e) {
-    console.warn("lp-orders", String((e as Error)?.message ?? e));
-    return json({ ...res, error: String((e as any)?.message || e) }, 500);
+    console.warn("lp-orders", konto.u, String((e as Error)?.message ?? e)); res.fehler++;
   } finally { await client.logout().catch(() => {}); }
+  }
   return json(res);
 });

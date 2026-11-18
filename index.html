@@ -116,7 +116,7 @@ const monday=s=>{const d=new Date(s+'T12:00');return addDays(s,-((d.getDay()+6)%
 const ST={offen:'Offen',in_bearbeitung:'In Bearbeitung',wartet:'Wartet',erledigt:'Erledigt',zu_pruefen:'Zu prüfen'};
 const PR={hoch:'1',mittel:'2',niedrig:'3'};
 const CAT={aufgabe:'Aufgabe',zahlung:'Zahlung',event:'Event',lieferant:'Lieferant',dokument:'Dokument',personal:'Personal',vertrag:'Vertrag'};
-const PEOPLE=['Arben','Dennis','Levent'];
+const PEOPLE=['Arben','Levent'];
 const DOCCAT={'Finanzen':'vertraulich/finanzen','Lieferantenrechnungen':'lieferantenrechnungen','Kundenrechnungen':'kundenrechnungen','Bankauszüge':'vertraulich/bankauszuege','Zahlungsbestätigungen':'zahlungsbestaetigungen','Eventabrechnungen':'eventabrechnungen','Arbeitsverträge':'vertraulich/arbeitsvertraege','Lohnabrechnungen':'vertraulich/lohnabrechnungen','Versicherungen':'versicherungen','Mietvertrag':'mietvertrag','Betreibungen':'vertraulich/betreibungen','Buchhaltung':'vertraulich/buchhaltung','Sponsoringverträge':'sponsoringvertraege','Umsatzberichte':'umsatzberichte','Personal':'vertraulich/personal','personal':'vertraulich/personal','finanzen':'vertraulich/finanzen','buchhaltung':'vertraulich/buchhaltung','event':'eventabrechnungen','lieferant/vertrag':'lieferant-vertrag'};
 const KIND={normal:'Normal',lieferantenbestellung:'Lieferantenbestellung',schuldenrueckzahlung:'Schuldenrückzahlung',lohn:'Lohn',event:'Event',sonstiges:'Sonstiges'};
 const RV={ok:'OK',zu_pruefen:'Zu prüfen',duplikat:'Duplikat'};
@@ -929,7 +929,7 @@ const MK={
   rechnung:/rechnung|invoice|faktura|facture|mahnung|zahlungserinnerung|betreibung|zahlung|inkasso|verlustschein|ratenplan|saldo/i,
   auto:/^(automatische antwort|auto(?:matic)? ?reply|abwesenheit|out of office|r[ée]ponse automatique|unzustellbar|undeliverable|delivery status)/i,
   offerte:/offerte|\bangebot|quotation|\bquote\b|\bdevis\b|kostenvoranschlag|preisliste|konditionen|unverbindlich(?:e|es)? (?:angebot|offerte)/i,
-  anfrage:/zusammenarbeit|kooperation|partnerschaft|sponsoring|sponsor|booking|buchungsanfrage|\banfrage\b|reservation|reservierung|location (?:mieten|miete|buchen)|raum ?miete|eventlocation|event bei (?:euch|ihnen)|firmenanlass|firmenevent|privatanlass|geburtstag(?:sfeier|sparty)|auftritt|auftreten|\bdj\b|künstler|artist|collaboration|partnership|cooperation|influencer|promotion|veranstalt(?:en|ung) bei/i,
+  anfrage:/club ?miete|club (?:mieten|buchen|reservieren)|clubvermietung|vermietung|(?:club|lokal|location|raum|bar) (?:zu )?mieten|exklusiv(?:e|es)? (?:miete|nutzung)|privatparty|private party|polterabend|hochzeit|weihnachtsessen|weihnachtsfeier|firmenfeier|teamevent|apéro|apero|verfügbarkeit|freie[rn]? (?:termin|datum)|zusammenarbeit|kooperation|partnerschaft|sponsoring|sponsor|booking|buchungsanfrage|\banfrage\b|reservation|reservierung|location (?:mieten|miete|buchen)|raum ?miete|eventlocation|event bei (?:euch|ihnen)|firmenanlass|firmenevent|privatanlass|geburtstag(?:sfeier|sparty)|auftritt|auftreten|\bdj\b|künstler|artist|collaboration|partnership|cooperation|influencer|promotion|veranstalt(?:en|ung) bei/i,
   werbung:/newsletter|abmelden|unsubscribe|no-?reply|noreply|mailchimp|sendinblue|brevo|hubspot|linkedin|facebookmail|google\.com|apple\.com/i};
 function mailKind(m){
   const head=(m.subject||'')+' '+(m.attachments||[]).map(a=>a.name).join(' '),all=head+' '+(m.snippet||''),from=(m.from_address||'')+' '+(m.from_name||'');
@@ -947,8 +947,8 @@ async function mailLeads(msgs){
     const k=mailKind(m);if(k!=='offerte'&&k!=='anfrage')continue;
     const key='mail-'+m.uid+'-lead';if(S.records.some(r=>r.source_key===key))continue;
     const from=m.from_name||m.from_address,when=m.date?iso(new Date(m.date)):today();
-    const r=await sb.from('lp_records').insert({source_key:key,category:'aufgabe',title:(k==='offerte'?'Offerte: ':'Anfrage/Zusammenarbeit: ')+from+' – '+(m.subject||'(ohne Betreff)').slice(0,90),status:'offen',priority:'mittel',responsible:'Arben',due_date:addDays(when,3),
-      notes:'Automatisch aus E-Mail erkannt ('+KINDL[k]+'). Von '+from+' <'+m.from_address+'> am '+fd(when)+'.\nAuszug: '+(m.snippet||'').slice(0,600)+'\nBitte prüfen und beantworten. Es wurde nichts beantwortet oder zugesagt.',details:{art:'mail_lead',mail_uid:m.uid,mail_kind:k,firma:from}}).select('*').single();
+    const r=await sb.from('lp_records').insert({source_key:key,category:'aufgabe',title:(k==='offerte'?'Offerte: ':'Anfrage/Zusammenarbeit: ')+from+' – '+(m.subject||'(ohne Betreff)').slice(0,90),status:'offen',priority:'mittel',responsible:'Levent',due_date:addDays(when,3),
+      notes:'Automatisch aus E-Mail erkannt ('+KINDL[k]+'). Von '+from+' <'+m.from_address+'> am '+fd(when)+'.\nAuszug: '+(m.snippet||'').slice(0,600)+'\nZuständig: Levent (Anfragen, Clubmiete, Offerten)'+(m.postfach==='contact'?'; eingegangen an contact@':'')+'. Bitte prüfen und beantworten. Es wurde nichts beantwortet oder zugesagt.',details:{art:'mail_lead',mail_uid:m.uid,mail_kind:k,firma:from,postfach:m.postfach||'info'}}).select('*').single();
     if(r.error){log.push('Hinweis für «'+m.subject+'»: '+r.error.message);continue}
     S.records.push(r.data);log.push('Neue '+KINDL[k]+' von '+from+': «'+m.subject+'» – als Aufgabe gemeldet');
   }

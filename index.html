@@ -168,14 +168,16 @@ function loginView(msg){
 async function logout(){await sb.auth.signOut();location.hash='';location.reload()}
 sb.auth.onAuthStateChange(async ev=>{if(ev==='PASSWORD_RECOVERY'){const p=prompt('Neues Passwort (mind. 8 Zeichen):');if(p&&p.length>=8){const {error}=await sb.auth.updateUser({password:p});error?fail(error):toast('Passwort geändert')}}});
 
+/* Supabase liefert höchstens 1000 Zeilen pro Abfrage → grosse Tabellen seitenweise laden */
+async function all(mk){let out=[];for(let f=0;;f+=1000){const r=await mk().range(f,f+999);if(r.error)return {error:r.error,data:out};out=out.concat(r.data||[]);if(!r.data||r.data.length<1000)return {data:out}}}
 async function load(){
-  const q=[sb.from('lp_records').select('*').order('due_date',{nullsFirst:false}),sb.from('lp_recurring').select('*').order('next_due'),sb.from('lp_documents').select(DC).order('file_name'),
-    sb.from('lp_bank_tx').select('*').order('booking_date',{ascending:false}).limit(6000),sb.from('lp_bank_balance').select('*').order('as_of',{ascending:false}).limit(12),
+  const q=[all(()=>sb.from('lp_records').select('*').order('due_date',{nullsFirst:false}).order('id')),sb.from('lp_recurring').select('*').order('next_due'),all(()=>sb.from('lp_documents').select(DC).order('file_name').order('library_file_id')),
+    all(()=>sb.from('lp_bank_tx').select('*').order('booking_date',{ascending:false}).order('id')),sb.from('lp_bank_balance').select('*').order('as_of',{ascending:false}).limit(12),
     sb.from('lp_changes').select('*').order('changed_at',{ascending:false}).limit(150)];
   const r=await Promise.all(q);const e=r.find(x=>x.error);if(e)fail(e.error);
   [S.records,S.recurring,S.docs,S.tx,S.bal,S.changes]=r.map(x=>x.data||[]);S.balAG=S.bal.filter(b=>String(b.source).startsWith('[AG]'));S.bal=S.bal.filter(b=>!String(b.source).startsWith('[AG]'));
   const mm=await sb.from('lp_members').select('user_id,role,display_name,email,requested_at');S.members=mm.data||[];
-  if(S.role==='admin'){const bx=await sb.from('lp_bexio').select('kind,bexio_id,data,synced_at').limit(10000);S.bx=bx.data||[]}
+  if(S.role==='admin'){const bx=await all(()=>sb.from('lp_bexio').select('kind,bexio_id,data,synced_at').order('kind').order('bexio_id'));S.bx=bx.data||[]}
 }
 async function refresh(){await load();route()}
 
@@ -1062,7 +1064,7 @@ async function autoBexio(manual){
   try{const d=await bexioCall({action:'sync'});S.bxRes=d;
     if(d.error){if(manual)toast(d.error==='not_configured'?'Bexio ist noch nicht verbunden':'Bexio: '+d.error,1);if(location.hash==='#bexio')route();return}
     if(d.archived?.length){await load();try{await bxLinkDocs()}catch(e){console.warn(e)}toast(d.archived.length+' Beleg(e) aus Bexio ins Archiv übernommen')}
-    const bx=await sb.from('lp_bexio').select('kind,bexio_id,data,synced_at').limit(10000);S.bx=bx.data||[];
+    const bx=await all(()=>sb.from('lp_bexio').select('kind,bexio_id,data,synced_at').order('kind').order('bexio_id'));S.bx=bx.data||[];
     if(d.bills&&(d.bills.neu||d.bills.aktualisiert||d.bills.verknuepft)){await load();toast('Bexio: '+d.bills.neu+' neue, '+d.bills.aktualisiert+' aktualisierte Rechnung(en)')}
     else if(manual)toast('Bexio abgeglichen');
     if(location.hash==='#bexio'||manual)route();

@@ -665,7 +665,7 @@ function vFin(){
   ['#gfrom','#gto','#grv','#ggrp','#gq','#gk','#gj'].forEach(s=>$(s).onchange=set);
 }
 /* Zahlungen an Personen gemeinsam einordnen: pro Empfänger einmal bestätigen */
-const PERSK=[['Lohn','Lohn','lohn'],['DJ / Künstler','DJ / Künstler','event'],['Dienstleistung','Dienstleistung','normal'],['Gesellschafter / privat','Gesellschafter / privat','normal']];
+const PERSK=[['Lohn','Lohn','lohn'],['DJ / Künstler','DJ / Künstler','event'],['Security','Security','event'],['Dienstleistung','Dienstleistung','normal'],['Lieferant / Einkauf','Einkauf Gastro / Lebensmittel','normal'],['Gesellschafter / privat','Gesellschafter / Darlehen (klären)','normal']];
 function persGroups(){
   const G={};S.tx.filter(t=>t.review_state==='zu_pruefen'&&+t.amount_chf<0&&!/^(zahlung|auszahlung) - /i.test(t.description||'')&&!/^übertrag$/i.test((t.description||'').trim())).forEach(t=>{
     const n=(payee(t)||(t.description||'').split(',')[0]).trim();if(!n)return;(G[n]??=[]).push(t)});
@@ -684,7 +684,7 @@ async function persSet(i,k){
   const [n,ts]=persGroups()[i],[l,cat,kind]=PERSK[k];
   if(!confirm(ts.length+' Zahlung(en) an «'+n+'» über total '+chf(-ts.reduce((s,t)=>s+ +t.amount_chf,0))+' als «'+l+'» einordnen?'))return;
   const ok=true,note=' Zugeordnet als «'+l+'» von '+S.name+' am '+fd(today())+'.';
-  for(const t of ts){const v={category:cat,kind,notes:((t.notes||'')+note).trim()};if(ok)v.review_state='ok';
+  for(const t of ts){const v={category:cat,kind,notes:((t.notes||'')+note).trim()};if(ok&&!/klären/.test(cat))v.review_state='ok';
     const {error}=await sb.from('lp_bank_tx').update(v).eq('id',t.id);if(error)return fail(error);Object.assign(t,v)}
   toast(ts.length+' Zahlung(en) an '+n+' als «'+l+'» eingeordnet');vFin();
 }
@@ -748,7 +748,7 @@ async function autoMatch(rows){const hit=[],used=new Set();
     if(v.error)continue;used.add(r.id);hit.push('• '+r.title+' – '+chf(amt)+' am '+fd(t.booking_date))}
   return hit}
 /* ---------- Valiant-PDF ---------- */
-const RULES=[[/stardrinks/i,'Getränke','lieferantenbestellung'],[/heineken|feldschl/i,'Getränke','lieferantenbestellung'],[/ewb|energie wasser/i,'Energie','normal'],[/axa|versicherung/i,'Versicherung','normal'],[/bernische pensionskasse|\(bpk\)/i,'Miete','normal'],[/gastrosocial|pensionskasse|ahv|ausgleichskasse/i,'Sozialversicherung','normal'],[/sumup|twint|payrexx|eventfrog|worldline/i,'Karten- und Onlineeinnahmen','normal'],[/betreibungsamt|inkasso|eos schweiz/i,'Betreibung / Inkasso','normal'],[/facebk|facebook|meta /i,'Werbung','normal'],[/kartengeb|setgeb|kontof|spesen des|habenzins|sollzins|buchungsspesen|kontoabschluss|^gebühr/i,'Bankgebühren','normal'],[/hostpoint/i,'IT','normal'],[/suisa/i,'SUISA','normal'],[/security/i,'Security','event'],[/sunrise|swisscom/i,'Telekom','normal'],[/treuhand/i,'Treuhand','normal'],[/jt intl|jti/i,'Sponsoring','normal'],[/lohn|salär|salaer/i,'Lohn','lohn'],[/bdo|miete/i,'Miete','normal']];
+const RULES=[[/tankomat|shell |avia |migrol|socar|tankstelle/i,'Treibstoff','normal'],[/easypark|autopark|parking|parkhaus|easyjet|hotel ibis|rilano|hls hotels/i,'Reise / Parking','normal'],[/bexio ag|fiverr|dazn/i,'IT','normal'],[/copyquick|uniprint|buchstaben nacht/i,'Werbung','normal'],[/papeterie|office world|em elektro|jysk|habitat|gonser|gobag/i,'Betriebsmaterial','normal'],[/kunz gastro|innogastro|oliv gastro|gustero/i,'Einkauf Gastro / Lebensmittel','normal'],[/brezelk|burger king|kiosk|confiserie|chillounge|einstein kaffee/i,'Spesen / Verpflegung','normal'],[/bacardi|campari/i,'Sponsoring','normal'],[/stripe payments/i,'Karten- und Onlineeinnahmen','normal'],[/regierungsstatthalter/i,'Steuern und Gebühren','normal'],[/stardrinks/i,'Getränke','lieferantenbestellung'],[/heineken|feldschl/i,'Getränke','lieferantenbestellung'],[/ewb|energie wasser/i,'Energie','normal'],[/axa|versicherung/i,'Versicherung','normal'],[/bernische pensionskasse|\(bpk\)/i,'Miete','normal'],[/gastrosocial|pensionskasse|ahv|ausgleichskasse/i,'Sozialversicherung','normal'],[/sumup|twint|payrexx|eventfrog|worldline/i,'Karten- und Onlineeinnahmen','normal'],[/betreibungsamt|inkasso|eos schweiz/i,'Betreibung / Inkasso','normal'],[/facebk|facebook|meta /i,'Werbung','normal'],[/kartengeb|setgeb|kontof|spesen des|habenzins|sollzins|buchungsspesen|kontoabschluss|^gebühr/i,'Bankgebühren','normal'],[/hostpoint/i,'IT','normal'],[/suisa/i,'SUISA','normal'],[/security/i,'Security','event'],[/sunrise|swisscom/i,'Telekom','normal'],[/treuhand/i,'Treuhand','normal'],[/jt intl|jti/i,'Sponsoring','normal'],[/lohn|salär|salaer/i,'Lohn','lohn'],[/bdo|miete/i,'Miete','normal']];
 const pnum=s=>+String(s).replace(/['’]/g,'');
 const dmy=s=>s.slice(6,10)+'-'+s.slice(3,5)+'-'+s.slice(0,2);
 const SKIP=[/^Valiant Bank AG$/,/^Bundesplatz 4$/,/^3001 Bern$/,/^CHE-[\d.]+ MWST$/,/^(Datum\/Zeit|Vertrag|Konto|IBAN|Bezeichnung|Inhaber\/in)\s/,/^Kontoauszug$/,/^Datum\s+Buchungstext/,/Angaben ohne Gewähr/,/^Seite \d+/];

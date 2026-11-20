@@ -561,17 +561,9 @@ function vOrders(){
     sMo=seit(mo).reduce((a,r)=>a+ob(r),0),s30=seit(d30).reduce((a,r)=>a+ob(r),0),g=S.ordG??={lf:'',date:today(),liefer:'',text:'',betrag:''},sug=ordLief();
   M(`<h1>Bestellungen</h1>
   <div class="grid"><div class="card kpi"><div class="l">Bestellt diesen Monat</div><div class="v" style="color:var(--red)">${chf(sMo)}</div><div class="sm mut">${seit(mo).length} Bestellung(en)</div></div><div class="card kpi"><div class="l">Bestellt letzte 30 Tage</div><div class="v">${chf(s30)}</div><div class="sm mut">${seit(d30).length} Bestellung(en)</div></div></div>
-  <p class="sm mut">Bestellungen an Lieferanten aus deinem Postfach (Ordner «Gesendet») werden automatisch übernommen; der Betrag kommt aus der Auftragsbestätigung des Lieferanten. Ohne Bestätigung wird ein ungefährer Betrag aus früheren Zahlungen vorgeschlagen.</p>
+  <p class="sm mut">Bestellungen an Lieferanten aus deinem Postfach (Ordner «Gesendet») werden automatisch übernommen; der Betrag kommt aus der Auftragsbestätigung des Lieferanten. Neue Stardrinks-Bestellungen unten im Bestellrechner erfassen und zur Freigabe senden.</p>
   ${ordWait(orders)}
-  ${bestOnly()?'':`<div class="card" style="margin-top:12px"><h2>Neue Bestellung</h2><div class="fg">
-   <label>Lieferant<input id="gl" list="gll" value="${esc(g.lf)}" placeholder="z. B. Stardrinks, Prodega, Heineken" oninput="ordEstShow()"><datalist id="gll">${sug.map(n=>`<option>${esc(n)}</option>`).join('')}</datalist></label>
-   <label>Bestellt am<input type="date" id="gd" value="${g.date}"></label>
-   <label>Lieferung am<input type="date" id="gli" value="${g.liefer}"></label>
-   <label>Ungefährer Betrag CHF<input type="number" step="0.05" min="0" id="gb" value="${esc(g.betrag)}" placeholder="wird vorgeschlagen"></label>
-   <label class="w">Was wird bestellt? (optional)<textarea id="gt" placeholder="z. B. 10 Harasse Heineken, 6 Flaschen Gin …">${esc(g.text)}</textarea></label></div>
-   <p class="sm mut" id="ge"></p>
-   ${canEdit()?'<div class="bar"><button class="btn" onclick="ordSaveG()">Bestellung speichern</button></div>':''}
-   <p class="sm mut">Speichern legt nur den Eintrag an. Es wird nichts bestellt, gesendet oder bezahlt. Sobald die Rechnung da ist, den Eintrag öffnen und den effektiven Betrag eintragen bzw. auf «erledigt» setzen.</p></div>`}
+
   ${P?`<div class="note ${P.bestaetigt?'':'red'}"><b>${P.bestaetigt?'Preise bestätigt am '+fd(P.bestaetigt_am):'Preis zu prüfen: provisorische Listenpreise'}.</b> ${esc(P.hinweis||'')}</div>`:''}
   ${P?`<div class="card" style="margin-top:12px"><h2>Bestellrechner Stardrinks (mit Preisliste)</h2>
    <div class="bar"><label class="sm">Bestelldatum <input type="date" id="od" value="${o.date}"></label><label class="sm">Liefertermin <input type="date" id="ol" value="${o.liefer}"></label></div>
@@ -583,7 +575,7 @@ function vOrders(){
    <textarea id="otx" placeholder="5 Longneck&#10;2 Heineken 0.0&#10;3 Dose 50"></textarea>
    <div class="bar"><button class="btn sec" onclick="ordParse()">Text übernehmen</button>${admin()?'<button class="btn sec" onclick="ordCopy()">Bestelltext kopieren</button>':''}</div>
    ${canEdit()||bestOnly()?`<label class="sm" style="display:block;margin-top:8px">Bemerkung an Stardrinks (optional, steht im Mail)<textarea id="obem" placeholder="z. B. Bitte Kontoangaben mitsenden, am Freitag ist niemand vor Ort.">${esc(o.bem||'')}</textarea></label>
-   <div class="bar"><button class="btn" onclick="ordSubmit()">Zur Freigabe senden</button>${admin()?'<button class="btn sec" onclick="ordSave()">Nur erfassen (ohne Mail)</button>':''}</div>
+   <div class="bar"><button class="btn" onclick="ordSubmit()">Zur Freigabe senden</button></div>
    <p class="sm mut">«Zur Freigabe senden» legt die Bestellung an und meldet sie Arben und Levent. Erst wenn einer von beiden freigibt, geht ein Mail von info@leportier.ch an info@stardrinks.ch, mit Kundennummer und Artikeln, <b>ohne Preise</b>. Es wird nichts bezahlt.</p>`:''}</div>`:''}
   ${P?`<div class="card" style="margin-top:12px"><h2>Preisliste</h2>${pos.length?`<div class="tw"><table><tr><th>Produkt</th><th class="r">Einheit</th><th class="r">Stückpreis</th><th class="r">Pro Einheit</th><th>Stand</th><th></th></tr>${pos.map((p,i)=>`<tr><td>${esc(p.produkt)}${p.mat_nr?' <span class="mut sm">Nr. '+esc(p.mat_nr)+'</span>':''}</td><td class="r">${esc(p.einheit||p.gebinde)}</td><td class="num r">${chf(p.stueckpreis)}</td><td class="num r">${chf(p.gebindepreis)}</td><td class="sm">${p.gebindepreis==null?'<span class="b zu_pruefen">Preis fehlt</span>':p.geaendert_am?'geändert '+fd(p.geaendert_am):'Liste ab '+fd(P.gueltig_ab)}</td><td>${admin()?`<button class="btn xs sec" onclick="ordPrice(${i})">Preis ändern</button>`:''}</td></tr>`).join('')}</table></div>`:''}
    ${admin()&&P?`<div class="bar"><button class="btn sec" onclick="ordAdd()">Produkt hinzufügen</button>${P.bestaetigt?'':'<button class="btn sec" onclick="ordConfirm()">Preise als bestätigt markieren</button>'}</div>`:''}

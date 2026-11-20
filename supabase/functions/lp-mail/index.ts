@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return json({ error: "Nicht angemeldet" }, 401);
     const { data: m } = await sb.from("lp_members").select("role").eq("user_id", user.id).maybeSingle();
-    if (m?.role !== "admin") return json({ error: "Keine Berechtigung" }, 403);
+    if (!["admin", "partner"].includes(m?.role)) return json({ error: "Keine Berechtigung" }, 403); // Partner: nur lesen
 
     const u = Deno.env.get("HOSTPOINT_USER"), p = Deno.env.get("HOSTPOINT_PASS");
     if (!u || !p) return json({ error: "not_configured" });

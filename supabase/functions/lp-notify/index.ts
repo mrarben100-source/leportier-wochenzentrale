@@ -49,6 +49,21 @@ async function senden(sb: any, subs: any[], payload: any) {
   return { ok, weg };
 }
 
+// Neue Zugangsanfragen (lp_members.role = 'pending') an die Geräte der Admins melden, je Anfrage einmal
+async function zugang(sb: any) {
+  const { data: offen } = await sb.from("lp_members").select("user_id,display_name,email").eq("role", "pending").is("notified_at", null);
+  if (!offen?.length) return 0;
+  const { data: admins } = await sb.from("lp_members").select("user_id").eq("role", "admin");
+  const { data: subs } = await sb.from("lp_push_subs").select("id,sub,user_id").in("user_id", (admins || []).map((a: any) => a.user_id));
+  let n = 0;
+  for (const p of offen) {
+    const r = await senden(sb, subs || [], { title: "Neue Zugangsanfrage", body: (p.display_name || "Jemand") + (p.email ? " (" + p.email + ")" : "") + " möchte Zugang zur Wochenzentrale. Tippen zum Freischalten.", url: "./#uebersicht", tag: "zugang-" + p.user_id });
+    await sb.from("lp_members").update({ notified_at: new Date().toISOString() }).eq("user_id", p.user_id);
+    n += r.ok;
+  }
+  return n;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -64,6 +79,7 @@ Deno.serve(async (req) => {
     const { data: m } = await sb.from("lp_members").select("role,display_name").eq("user_id", user.id).maybeSingle();
     if (!m) return json({ error: "Keine Berechtigung" }, 403);
     if (body.action === "key") return json({ publicKey: K.public_key });
+    if (body.action === "zugang") return json({ gemeldet: await zugang(sb) });
     if (body.action === "test") {
       const { data: subs } = await sb.from("lp_push_subs").select("id,sub").eq("user_id", user.id);
       const r = await senden(sb, subs || [], { title: "Wochenzentrale", body: "Test: Push-Mitteilungen funktionieren auf diesem Gerät, " + (m.display_name || "") + ".", url: "./#uebersicht" });
@@ -73,7 +89,8 @@ Deno.serve(async (req) => {
   }
 
   // --- Lauf ohne Anmeldung (Cron) ---
-  const res = { neue_anfragen: 0, gesendet: 0, fehler: 0, warteschlange: 0 };
+  const res: any = { neue_anfragen: 0, gesendet: 0, fehler: 0, warteschlange: 0, zugang: 0 };
+  try { res.zugang = await zugang(sb); } catch (e) { console.warn("zugang", String(e)); }
   // Warteschlange (lp_push_queue, nur Server): einzelne Mitteilungen, z. B. Tests oder Hinweise
   {
     const { data: q } = await sb.from("lp_push_queue").select("*").is("sent_at", null).order("created_at").limit(20);

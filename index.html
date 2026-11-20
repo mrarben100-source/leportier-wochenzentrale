@@ -145,7 +145,7 @@ function pendingView(m){
   ${m?`<div class="note">Deine Anfrage ist gesendet. Ein Administrator muss dich im Dashboard unter «Protokoll → Benutzer» freischalten.</div><button class="btn" onclick="boot()">Erneut prüfen</button>`
      :`<p class="mut sm">Trag deinen Namen ein und sende die Anfrage. Danach schaltet dich ein Administrator frei.</p><input id="pn" placeholder="Vorname (z. B. Levent)"><button class="btn" id="pb">Zugang anfragen</button>`}
   <button class="btn sec" onclick="logout()">Abmelden</button></div></div>`;
-  if(!m)$('#pb').onclick=async()=>{const n=$('#pn').value.trim();if(!n)return toast('Bitte Namen eintragen',1);const {error}=await sb.from('lp_members').insert({user_id:S.user.id,role:'pending',display_name:n});error?fail(error):boot()};
+  if(!m)$('#pb').onclick=async()=>{const n=$('#pn').value.trim();if(!n)return toast('Bitte Namen eintragen',1);const {error}=await sb.from('lp_members').insert({user_id:S.user.id,role:'pending',display_name:n});if(error)return fail(error);try{await sb.functions.invoke('lp-notify',{body:{action:'zugang'}})}catch(e){}boot()};
 }
 function live(){
   sb.channel('lp-live').on('postgres_changes',{event:'INSERT',schema:'public',table:'lp_changes'},()=>S.dirty=true).on('postgres_changes',{event:'INSERT',schema:'public',table:'lp_comments'},()=>S.dirty=true).subscribe();
@@ -294,7 +294,7 @@ function vHome(){
    <div class="card kpi"><div class="l">Dokumente</div><div class="v">${S.docs.length-miss} / ${S.docs.length}</div><div class="sm mut">${miss} Verweise ohne hochgeladene Datei</div></div>
   </div>
   <div class="note">Offene Zahlungen sind nur die erfassten Einzelbeträge. Sie sind kein bestätigter Gesamtschuldenstand; Salden mit Status «Zu prüfen» sind nicht bestätigt.</div>
-  ${admin()&&S.members.some(m=>m.role==='pending')?`<div class="note red"><b>${S.members.filter(m=>m.role==='pending').length} Zugangsanfrage(n) offen.</b> <a href="#protokoll">Jetzt prüfen und freischalten</a></div>`:''}
+  ${admin()&&S.members.some(m=>m.role==='pending')?`<div class="note red"><b>Zugangsanfrage${S.members.filter(m=>m.role==='pending').length>1?'n':''} offen:</b>${S.members.filter(m=>m.role==='pending').map(m=>`<div class="bar" style="margin:6px 0 0"><span><b>${esc(m.display_name||'–')}</b> <span class="sm mut">${esc(m.email||'')}</span></span><button class="btn xs" onclick="userRole('${m.user_id}','partner')">Als Partner freischalten (alles sehen, nichts ändern)</button><button class="btn xs sec" onclick="userApprove('${m.user_id}')">Als Administrator</button></div>`).join('')}<p class="sm mut" style="margin:6px 0 0">Partner kannst du später jederzeit unter Protokoll → Benutzer zum Administrator machen.</p></div>`:''}
   ${(L=>L.length?`<div class="card" style="margin-bottom:12px;border-color:var(--blu)"><h2>Neue Offerten &amp; Anfragen aus E-Mails (${L.length})</h2>${tbl(L.sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||'')).slice(0,8),'')}</div>`:'')(R.filter(r=>open(r)&&r.details?.art==='mail_lead'&&(mine(r)||!r.responsible)))}
   <div class="cols">
    <div class="card"><h2>Meine Aufgaben (${esc(S.name)})</h2>${tbl(R.filter(r=>open(r)&&mine(r)).sort((a,b)=>(PR[a.priority]||9)-(PR[b.priority]||9)||(a.due_date||'9').localeCompare(b.due_date||'9')).slice(0,12),'Dir ist nichts Offenes zugewiesen.')}</div>

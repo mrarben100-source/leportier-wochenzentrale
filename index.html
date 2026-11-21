@@ -158,13 +158,12 @@ const mine=r=>{const n=(S.name||'').split(/[\s@]/)[0];return n.length>1&&new Reg
 function loginView(msg){
   root.innerHTML=`<div class="login"><div class="card"><h1>Le Portier N°35</h1><p class="mut">Wochenzentrale – Anmeldung</p>
   ${msg?`<div class="note">${esc(msg)}</div>`:''}
-  <input id="le" type="email" placeholder="E-Mail" autocomplete="username"><input id="lp" type="password" placeholder="Passwort (mind. 8 Zeichen)" autocomplete="current-password">
-  <button class="btn" id="li">Anmelden</button><button class="btn sec" id="lr">Neues Konto registrieren</button>
+  <input id="le" type="email" placeholder="E-Mail" autocomplete="username"><input id="lp" type="password" placeholder="Passwort" autocomplete="current-password">
+  <button class="btn" id="li">Anmelden</button>
   <button class="btn sec" id="lf">Passwort vergessen</button></div></div>`;
   const cred=()=>({email:$('#le').value.trim(),password:$('#lp').value});
   $('#li').onclick=async()=>{const {error}=await sb.auth.signInWithPassword(cred());error?toast('Anmeldung fehlgeschlagen: '+error.message,1):boot()};
   $('#lp').onkeydown=e=>{if(e.key==='Enter')$('#li').click()};
-  $('#lr').onclick=async()=>{const c=cred();if(c.password.length<8)return toast('Passwort mindestens 8 Zeichen',1);const {data,error}=await sb.auth.signUp({...c,options:{emailRedirectTo:location.origin+location.pathname}});if(error)return fail(error);data.session?boot():loginView('Konto erstellt. Bitte den Link in der Bestätigungs-E-Mail anklicken und danach hier anmelden.')};
   $('#lf').onclick=async()=>{const e=$('#le').value.trim();if(!e)return toast('E-Mail eintragen',1);const {error}=await sb.auth.resetPasswordForEmail(e,{redirectTo:location.origin+location.pathname});error?fail(error):toast('E-Mail zum Zurücksetzen gesendet')};
 }
 async function logout(){await sb.auth.signOut();location.hash='';location.reload()}

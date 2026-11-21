@@ -159,12 +159,10 @@ function loginView(msg){
   root.innerHTML=`<div class="login"><div class="card"><h1>Le Portier N°35</h1><p class="mut">Wochenzentrale – Anmeldung</p>
   ${msg?`<div class="note">${esc(msg)}</div>`:''}
   <input id="le" type="email" placeholder="E-Mail" autocomplete="username"><input id="lp" type="password" placeholder="Passwort" autocomplete="current-password">
-  <button class="btn" id="li">Anmelden</button>
-  <button class="btn sec" id="lf">Passwort vergessen</button></div></div>`;
+  <button class="btn" id="li">Anmelden</button></div></div>`;
   const cred=()=>({email:$('#le').value.trim(),password:$('#lp').value});
   $('#li').onclick=async()=>{const {error}=await sb.auth.signInWithPassword(cred());error?toast('Anmeldung fehlgeschlagen: '+error.message,1):boot()};
   $('#lp').onkeydown=e=>{if(e.key==='Enter')$('#li').click()};
-  $('#lf').onclick=async()=>{const e=$('#le').value.trim();if(!e)return toast('E-Mail eintragen',1);const {error}=await sb.auth.resetPasswordForEmail(e,{redirectTo:location.origin+location.pathname});error?fail(error):toast('E-Mail zum Zurücksetzen gesendet')};
 }
 async function logout(){await sb.auth.signOut();location.hash='';location.reload()}
 sb.auth.onAuthStateChange(async ev=>{if(ev==='PASSWORD_RECOVERY'){const p=prompt('Neues Passwort (mind. 8 Zeichen):');if(p&&p.length>=8){const {error}=await sb.auth.updateUser({password:p});error?fail(error):toast('Passwort geändert')}}});

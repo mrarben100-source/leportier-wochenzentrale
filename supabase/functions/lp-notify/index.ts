@@ -118,6 +118,22 @@ Deno.serve(async (req) => {
     if (!m) return json({ error: "Keine Berechtigung" }, 403);
     if (body.action === "key") return json({ publicKey: K.public_key });
     if (body.action === "zugang") return json({ gemeldet: await zugang(sb) });
+    if (body.action === "login") {
+      // Anmeldung melden: nur bei echter Anmeldung (last_sign_in_at < 3 Min.), höchstens einmal pro 3 Min. und Person, nie die eigene
+      const { data: au } = await sb.auth.admin.getUserById(user.id);
+      const last = Date.parse(au?.user?.last_sign_in_at || "");
+      if (!(Date.now() - last < 180e3)) return json({ gemeldet: 0 });
+      if (!(await einmal(sb, "login-" + user.id + "-" + Math.floor(last / 180e3)))) return json({ gemeldet: 0 });
+      const { data: an } = await sb.from("lp_members").select("user_id,display_name").eq("role", "admin").ilike("display_name", "arben%");
+      const ziel = (an || []).map((a: any) => a.user_id).filter((id: string) => id !== user.id);
+      if (!ziel.length) return json({ gemeldet: 0 });
+      const { data: subs } = await sb.from("lp_push_subs").select("id,sub").in("user_id", ziel);
+      const RL: Record<string, string> = { admin: "Admin", partner: "Partner", bestellung: "Bestellungen", viewer: "Nur lesen", editor: "Bearbeiter", pending: "noch nicht freigeschaltet" };
+      const zeit = new Intl.DateTimeFormat("de-CH", { timeZone: "Europe/Zurich", hour: "2-digit", minute: "2-digit" }).format(new Date());
+      const ger = String(body.geraet || "").slice(0, 20);
+      const r = await senden(sb, subs || [], { title: "Anmeldung: " + (m.display_name || user.email), body: `${m.display_name || ""} (${user.email}, ${RL[m.role] || m.role}) hat sich um ${zeit} angemeldet${ger ? " – " + ger : ""}.`, url: "./#protokoll", tag: "login-" + user.id });
+      return json({ gemeldet: r.ok });
+    }
     if (body.action === "test") {
       const { data: subs } = await sb.from("lp_push_subs").select("id,sub").eq("user_id", user.id);
       const r = await senden(sb, subs || [], { title: "Wochenzentrale", body: "Test: Push-Mitteilungen funktionieren auf diesem Gerät, " + (m.display_name || "") + ".", url: "./#uebersicht" });

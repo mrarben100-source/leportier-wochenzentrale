@@ -741,8 +741,9 @@ function umsBox(jahr){
   let T=S.tx.filter(t=>(!jahr||t.booking_date.startsWith(jahr))).map(t=>({t,k:umsKat(t)})).filter(x=>x.k),M2={},sum={};
   T.forEach(({t,k})=>{const m=t.booking_date.slice(0,7);M2[m]??={};M2[m][k]=(M2[m][k]||0)+ +t.amount_chf;sum[k]=(sum[k]||0)+ +t.amount_chf});
   // Kebab-Laden Düdingen (gleiche GmbH, gleiches SumUp): nach Artikeln erkannt, vom Bank-Kartenumsatz abgezogen
+  // Bank-Auszahlungen mit Kategorie «Kebab Düdingen» sind schon ausgeschlossen (umsKat); für Tage ohne zugeordnete Auszahlung (Fiskal-Export) wird der Kartenanteil abgezogen
   const KD=(S.kasse||[]).filter(k=>k.standort==='duedingen'&&(!jahr||String(k.datum).startsWith(jahr))),keb=KD.reduce((a,k)=>a+ +k.umsatz_inkl,0);
-  KD.forEach(k=>{const m=String(k.datum).slice(0,7);M2[m]??={};M2[m].karten=(M2[m].karten||0)-k.umsatz_inkl;sum.karten=(sum.karten||0)-k.umsatz_inkl});
+  KD.filter(k=>k.quelle==='sumup').forEach(k=>{const c=+(k.methoden?.CARD||0),m=String(k.datum).slice(0,7);M2[m]??={};M2[m].karten=(M2[m].karten||0)-c;sum.karten=(sum.karten||0)-c});
   let tot=Object.values(sum).reduce((a,b)=>a+b,0),mon=Object.keys(M2).sort().reverse(),K=Object.keys(UMK).filter(k=>sum[k]);
   // Kasse pro Nacht: SumUp (Import) + BF-POS (Tagesabschlüsse in den Events)
   const N={},nn=d=>N[d]??={datum:d,su:0,bf:0,bar:0,karte:0,twint:0,tg:0,belege:0,prod:{},ev:null,von:null};
@@ -759,7 +760,7 @@ function umsBox(jahr){
   <div class="grid">${NL.length?`<div class="card kpi"><div class="l">Kassenumsatz (Verkauf)</div><div class="v num" style="color:var(--grn)">${chf(kt)}</div><div class="sm mut">${NL.length} Abende/Tage · SumUp + BF-POS</div></div>`:''}
    <div class="card kpi"><div class="l">Eingänge laut Bank${keb?' (ohne Kebab)':''}</div><div class="v num">${chf(tot)}</div><div class="sm mut">${T.length} Eingänge</div></div>
    ${K.map(k=>`<div class="card kpi"><div class="l">${UMK[k]}</div><div class="v num">${chf(sum[k])}</div><div class="sm mut">laut Bank</div></div>`).join('')}
-   ${keb?`<div class="card kpi"><div class="l">Kebab Düdingen (separat)</div><div class="v num mut">${chf(keb)}</div><div class="sm mut">${KD.length} Tage laut Artikeln (Kebab, Döner, Pizza …), vom Le-Portier-Umsatz abgezogen</div></div>`:''}</div>
+   ${keb?`<div class="card kpi"><div class="l">Kebab Düdingen (separat)</div><div class="v num mut">${chf(keb)}</div><div class="sm mut">${KD.length} Tage (nach Artikeln bzw. Uhrzeit erkannt), nicht im Le-Portier-Umsatz</div></div>`:''}</div>
   ${NL.length?`<h3 style="margin-top:14px">Pro Abend (Kasse)</h3><div class="tw"><table><tr><th>Datum</th><th>Anlass</th><th class="r">Umsatz</th><th class="r">Karte</th><th class="r">TWINT</th><th class="r">Bar</th><th class="r">Belege</th><th>Kasse</th></tr>
    ${shown.map(x=>`<tr class="click" onclick="kasseNacht('${x.datum}')"><td class="num">${fd(x.datum)}</td><td>${art(x)}</td><td class="num r"><b>${chf(x.tot)}</b></td><td class="num r">${chf(x.karte)}</td><td class="num r">${x.twint?chf(x.twint):'–'}</td><td class="num r">${chf(x.bar)}</td><td class="num r">${x.belege}</td><td class="sm">${[x.su?'SumUp':'',x.bf?'BF-POS':''].filter(Boolean).join(' + ')}</td></tr>`).join('')}</table></div>
    ${mehr?`<div class="bar"><button class="btn sec" onclick="S.kAll=1;route()">Alle ${NL.length} anzeigen</button></div>`:''}

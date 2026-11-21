@@ -64,6 +64,44 @@ async function zugang(sb: any) {
   return n;
 }
 
+// Erinnerung Stardrinks-Bestellung: Frist Mittwoch 12:00 (Zürcher Zeit).
+// Jenny (Rolle «bestellung»): Di 10:00 und Mi 08:00, falls diese Woche noch keine Stardrinks-Bestellung erfasst/gesendet ist.
+// Arben/Levent (admin): Mi 10:00 und 11:30, falls eine Bestellung noch auf Freigabe wartet.
+function zh() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, weekday: "short" }).formatToParts(new Date()).map((x) => [x.type, x.value]));
+  const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(p.weekday), datum = `${p.year}-${p.month}-${p.day}`, min = (+p.hour % 24) * 60 + +p.minute;
+  const mo = new Date(datum + "T12:00:00Z"); mo.setUTCDate(mo.getUTCDate() - ((dow + 6) % 7));
+  return { dow, datum, min, montag: mo.toISOString().slice(0, 10) };
+}
+async function einmal(sb: any, key: string) {
+  const { error } = await sb.from("lp_push_sent").insert({ key });
+  return !error; // schon gesendet → Konflikt
+}
+async function erinnerung(sb: any) {
+  const t = zh(), out: string[] = [];
+  const faellig = (dow: number, ab: number, bis: number) => t.dow === dow && t.min >= ab && t.min < bis;
+  const plan = [
+    { k: "jenny-di", an: "bestellung", ok: faellig(2, 600, 1080), title: "Stardrinks-Bestellung nicht vergessen", body: "Bitte die Stardrinks-Bestellung im Bestellrechner erfassen und zur Freigabe senden. Spätestens Mittwoch 12:00 muss sie bei Stardrinks sein." },
+    { k: "jenny-mi", an: "bestellung", ok: faellig(3, 480, 690), title: "Heute bis 12:00: Stardrinks-Bestellung", body: "Die Stardrinks-Bestellung ist noch nicht erfasst. Bitte jetzt im Bestellrechner eintragen und zur Freigabe senden." },
+    { k: "admin-mi-1000", an: "freigabe", ok: faellig(3, 600, 690), title: "Stardrinks-Bestellung freigeben", body: "Eine Bestellung wartet auf Freigabe. Frist: heute 12:00 bei Stardrinks." },
+    { k: "admin-mi-1130", an: "freigabe", ok: faellig(3, 690, 720), title: "Letzte Erinnerung: Freigabe bis 12:00", body: "Die Stardrinks-Bestellung wartet noch auf Freigabe. Bitte jetzt freigeben, damit das Mail vor 12:00 bei Stardrinks ist." },
+  ].filter((x) => x.ok);
+  if (!plan.length) return out;
+  const { data: woche } = await sb.from("lp_records").select("details").eq("details->>art", "bestellung").gte("details->>bestelldatum", t.montag);
+  const sd = (woche || []).filter((r: any) => (r.details?.lieferant === "stardrinks" || r.details?.lieferant_domain === "stardrinks.ch") && r.details?.freigabe?.status !== "abgelehnt");
+  const wartet = sd.some((r: any) => ["offen", "sendet"].includes(r.details?.freigabe?.status));
+  for (const x of plan) {
+    if (x.an === "bestellung" && sd.length) continue;
+    if (x.an === "freigabe" && !wartet) continue;
+    if (!(await einmal(sb, "erinnerung-" + t.datum + "-" + x.k))) continue;
+    const { data: ms } = await sb.from("lp_members").select("user_id").eq("role", x.an === "bestellung" ? "bestellung" : "admin");
+    const { data: subs } = await sb.from("lp_push_subs").select("id,sub").in("user_id", (ms || []).map((m: any) => m.user_id));
+    const r = await senden(sb, subs || [], { title: x.title, body: x.body, url: "./#bestellungen", tag: "erinnerung-" + x.k });
+    out.push(x.k + ":" + r.ok);
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -89,8 +127,9 @@ Deno.serve(async (req) => {
   }
 
   // --- Lauf ohne Anmeldung (Cron) ---
-  const res: any = { neue_anfragen: 0, gesendet: 0, fehler: 0, warteschlange: 0, zugang: 0 };
+  const res: any = { neue_anfragen: 0, gesendet: 0, fehler: 0, warteschlange: 0, zugang: 0, erinnerung: [] };
   try { res.zugang = await zugang(sb); } catch (e) { console.warn("zugang", String(e)); }
+  try { res.erinnerung = await erinnerung(sb); } catch (e) { console.warn("erinnerung", String(e)); }
   // Warteschlange (lp_push_queue, nur Server): einzelne Mitteilungen, z. B. Tests oder Hinweise
   {
     const { data: q } = await sb.from("lp_push_queue").select("*").is("sent_at", null).order("created_at").limit(20);
@@ -144,7 +183,11 @@ Deno.serve(async (req) => {
   // Mitteilungen für noch nicht gemeldete Einträge (nur neue, höchstens 3 Tage alt)
   const ab = new Date(Date.now() - 3 * 864e5).toISOString();
   const { data: offen } = await sb.from("lp_records").select("id,title,details,notes,source_key,created_at").gte("created_at", ab).is("details->>push_at", null).limit(50);
-  const { data: subs } = await sb.from("lp_push_subs").select("id,sub,topics");
+  // Themen-Mitteilungen (Anfragen, Mahnungen, Rechnungen) nie an Konten mit Rolle «bestellung»
+  const { data: ohne } = await sb.from("lp_members").select("user_id").eq("role", "bestellung");
+  const nein = new Set((ohne || []).map((m: any) => m.user_id));
+  const { data: subs0 } = await sb.from("lp_push_subs").select("id,sub,topics,user_id");
+  const subs = (subs0 || []).filter((s: any) => !nein.has(s.user_id));
   for (const r of offen || []) {
     const d = r.details || {};
     const topic = d.art === "mail_lead" ? "anfragen" : (String(r.source_key || "").startsWith("mailrechnung-") && d.mahnung_am) ? "mahnungen" : String(r.source_key || "").startsWith("mailrechnung-") && !d.dublette ? "rechnungen" : null;

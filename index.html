@@ -213,7 +213,7 @@ async function pushAsk(){
     if(!pushOk()){if(isIOS()&&!isStandalone()){dlg.innerHTML=`<form method="dialog"><h2>Mitteilungen aufs Handy</h2><p>Damit du bei neuen Anfragen, Clubmiete und Offerten sofort eine Mitteilung bekommst, die Wochenzentrale zuerst zum <b>Home-Bildschirm</b> hinzufügen: in Safari unten auf <b>Teilen</b> → <b>«Zum Home-Bildschirm»</b>. Danach die App von dort öffnen.</p><div class="bar"><button class="btn" onclick="pushLater(7)">Verstanden</button></div></form>`;dlg.showModal()}return}
     if(Notification.permission==='denied')return;
     const sub=await pushSub();if(sub){const {data}=await sb.from('lp_push_subs').select('id').eq('endpoint',sub.endpoint).maybeSingle();if(data)return}
-    dlg.innerHTML=`<form method="dialog"><h2>Mitteilungen aktivieren?</h2><p>Bekomme auf diesem Gerät sofort eine Mitteilung bei <b>neuen Anfragen, Clubmiete und Offerten</b> (info@ und contact@) sowie bei <b>Mahnungen</b> – auch wenn die App geschlossen ist.</p><p class="sm mut">Kostenlos, ohne Telefonnummer. Jederzeit auf der Übersicht unter «Mitteilungen auf diesem Gerät» änderbar.</p><div class="bar"><button class="btn sec" onclick="pushLater(3)">Später</button><button class="btn" onclick="dlg.close();pushOn()">Aktivieren</button></div></form>`;
+    dlg.innerHTML=`<form method="dialog"><h2>Mitteilungen aktivieren?</h2><p>${bestOnly()?'Bekomme auf diesem Gerät eine <b>Erinnerung an die Stardrinks-Bestellung</b> (Dienstag und Mittwoch früh, Frist Mittwoch 12:00) und eine Mitteilung, sobald deine Bestellung freigegeben ist.':'Bekomme auf diesem Gerät sofort eine Mitteilung bei <b>neuen Anfragen, Clubmiete und Offerten</b> (info@ und contact@) sowie bei <b>Mahnungen</b> – auch wenn die App geschlossen ist.'}</p><p class="sm mut">Kostenlos, ohne Telefonnummer. Jederzeit auf der Übersicht unter «Mitteilungen auf diesem Gerät» änderbar.</p><div class="bar"><button class="btn sec" onclick="pushLater(3)">Später</button><button class="btn" onclick="dlg.close();pushOn()">Aktivieren</button></div></form>`;
     dlg.showModal();
   }catch(e){console.warn(e)}
 }
@@ -224,7 +224,7 @@ async function pushOn(){
     const {data,error}=await sb.functions.invoke('lp-notify',{body:{action:'key'}});if(error||!data?.publicKey)throw new Error(data?.error||error?.message||'Schlüssel fehlt');
     const sub=await reg.pushManager.getSubscription()||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(data.publicKey)});
     const j=sub.toJSON(),dev=(isIOS()?'iPhone':/android/i.test(navigator.userAgent)?'Android':'Computer')+' · '+S.name;
-    const {error:e2}=await sb.from('lp_push_subs').upsert({endpoint:j.endpoint,sub:j,user_id:S.user.id,geraet:dev},{onConflict:'endpoint'});if(e2)throw e2;
+    const {error:e2}=await sb.from('lp_push_subs').upsert({endpoint:j.endpoint,sub:j,user_id:S.user.id,geraet:dev,...(bestOnly()?{topics:['bestellung']}:{})},{onConflict:'endpoint'});if(e2)throw e2;
     toast('Mitteilungen aktiviert');pushRefresh();
   }catch(e){console.warn(e);toast('Aktivieren fehlgeschlagen: '+(e.message||e),1)}}
 async function pushTopic(id,k,on){const {data}=await sb.from('lp_push_subs').select('topics').eq('id',id).single();const t=new Set(data?.topics||[]);on?t.add(k):t.delete(k);const {error}=await sb.from('lp_push_subs').update({topics:[...t]}).eq('id',id);error?fail(error):toast('Gespeichert')}
@@ -559,7 +559,7 @@ function vOrders(){
   M(`<h1>Bestellungen</h1>
   <div class="grid"><div class="card kpi"><div class="l">Bestellt diesen Monat</div><div class="v" style="color:var(--red)">${chf(sMo)}</div><div class="sm mut">${seit(mo).length} Bestellung(en)</div></div><div class="card kpi"><div class="l">Bestellt letzte 30 Tage</div><div class="v">${chf(s30)}</div><div class="sm mut">${seit(d30).length} Bestellung(en)</div></div></div>
   <p class="sm mut">Bestellungen an Lieferanten aus deinem Postfach (Ordner «Gesendet») werden automatisch übernommen; der Betrag kommt aus der Auftragsbestätigung des Lieferanten. Neue Stardrinks-Bestellungen unten im Bestellrechner erfassen und zur Freigabe senden.</p>
-  ${ordWait(orders)}
+  ${ordWoche(orders)}${ordWait(orders)}
 
   ${P?`<div class="note ${P.bestaetigt?'':'red'}"><b>${P.bestaetigt?'Preise bestätigt am '+fd(P.bestaetigt_am):'Preis zu prüfen: provisorische Listenpreise'}.</b> ${esc(P.hinweis||'')}</div>`:''}
   ${P?`<div class="card" style="margin-top:12px"><h2>Bestellrechner Stardrinks (mit Preisliste)</h2>
@@ -631,6 +631,10 @@ async function ordSave(){
   if(error)return fail(error);S.ord=null;toast('Bestellung gespeichert');refresh();
 }
 /* Freigabe: Geschäftsführerin reicht ein, Arben oder Levent geben frei; erst dann geht das Mail (ohne Preise) an Stardrinks */
+function ordWoche(orders){const d=new Date(today()+'T12:00'),dow=d.getDay(),mo=addDays(today(),-((dow+6)%7)),mi=addDays(mo,2);
+  const W=orders.filter(r=>(r.details.bestelldatum||'')>=mo&&(r.details.lieferant==='stardrinks'||r.details.lieferant_domain==='stardrinks.ch')&&r.details.freigabe?.status!=='abgelehnt');
+  const gesendet=W.some(r=>!r.details.freigabe||r.details.freigabe.status==='gesendet'),wartet=W.some(r=>['offen','sendet'].includes(r.details.freigabe?.status)),spaet=today()>mi;
+  return gesendet?`<div class="note" style="border-color:var(--grn)"><b>Stardrinks diese Woche: bestellt ✓</b></div>`:wartet?`<div class="note"><b>Stardrinks diese Woche: wartet auf Freigabe</b> – muss bis <b>Mittwoch ${fd(mi)}, 12:00</b> an Stardrinks gesendet sein.</div>`:spaet?'':`<div class="note red"><b>Stardrinks diese Woche: noch nicht bestellt.</b> Frist: <b>Mittwoch ${fd(mi)}, 12:00</b> (inkl. Freigabe durch Arben oder Levent).</div>`}
 function ordWait(orders){const W=orders.filter(r=>['offen','sendet'].includes(r.details.freigabe?.status));if(!W.length)return '';
   return `<div class="card" style="margin-top:12px;border-color:var(--red)"><h2>Wartet auf Freigabe (${W.length})</h2>${W.map(r=>{const d=r.details,f=d.freigabe;return `<div style="padding:8px 0;border-bottom:1px solid var(--line)"><b>Stardrinks</b> · eingereicht von ${esc(f.eingereicht_von||'–')} am ${fd(String(f.eingereicht_am).slice(0,10))}${d.liefertermin?' · Lieferung '+fd(d.liefertermin):''}
    <div class="sm" style="margin:4px 0">${(d.positionen||[]).map(p=>esc(p.menge+' × '+(p.einheit?p.einheit+' ':'')+p.produkt)+(p.preis_zu_pruefen?' <span class="b zu_pruefen">Preis zu prüfen</span>':' <span class="mut">'+chf(p.summe)+'</span>')).join('<br>')}</div>

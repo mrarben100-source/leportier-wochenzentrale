@@ -15,6 +15,16 @@
 <title>Le Portier N°35 – Wochenzentrale</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
+#main{padding-bottom:84px}
+#helpfab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:900;width:46px;height:46px;border-radius:50%;border:0;background:var(--acc);color:#fff;font-size:22px;font-weight:700;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer}
+#tour{position:fixed;inset:0;z-index:1000}
+#tour .spot{position:fixed;border-radius:12px;box-shadow:0 0 0 9999px rgba(20,18,15,.62);transition:all .3s ease;pointer-events:none;outline:3px solid var(--acc)}
+#tour .spot.none{left:50%!important;top:40%!important;width:0!important;height:0!important;outline:0}
+#tour .tc{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));max-width:440px;margin:0 auto;background:var(--card);color:var(--ink);border-radius:16px;padding:16px 18px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+#tour .tc.top{bottom:auto;top:calc(16px + env(safe-area-inset-top))}
+#tour .tc h3{margin:6px 0 6px;font-size:18px}#tour .tc p{margin:0 0 12px;line-height:1.45}
+#tour .dots{display:flex;gap:6px;align-items:center}#tour .dots i{width:9px;height:9px;border-radius:50%;background:var(--line)}#tour .dots i.on{background:var(--acc)}#tour .dots span{margin-left:auto;font-size:12px;color:var(--mut)}
+#tour .tb{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}#tour .tb .sk{margin-right:auto}
 :root{--bg:#f4f2ee;--card:#fff;--ink:#1c1b19;--mut:#6f6a62;--line:#e3dfd7;--acc:#8a6a2f;--accbg:#f3ead8;--red:#b3261e;--redbg:#fbe9e7;--grn:#1f7a4a;--grnbg:#e4f3ea;--amb:#9a6200;--ambbg:#fdf0d5;--blu:#1f5fa8;--blubg:#e4eefa;--side:#1c1b19}
 *{box-sizing:border-box}
 body{margin:0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
@@ -103,6 +113,7 @@ table.cards td.act select{flex:1 1 100%;max-width:100%!important}
 <div id="root"></div>
 <dialog id="dlg"></dialog>
 <div id="toast"></div>
+<button id="helpfab" onclick="helpOpen()" title="Erklärung" aria-label="Erklärung" style="display:none">?</button>
 <script>
 const sb = supabase.createClient('https://pvrvhkyvnlafipbmidon.supabase.co','sb_publishable_dE2ZMkj9nEFy7lJ4miiTVw_5wvggHC_');
 const $=s=>document.querySelector(s), root=$('#root'), dlg=$('#dlg');
@@ -139,8 +150,8 @@ async function boot(){
   const {data:m}=await sb.from('lp_members').select('role,display_name').eq('user_id',S.user.id).maybeSingle();
   if(!m||m.role==='pending')return pendingView(m);
   S.role=m.role;S.name=m.display_name||S.user.email;
-  if(bestOnly()){await load();shell();location.hash='#bestellungen';route();setTimeout(pushAsk,1500);setInterval(async()=>{if(dlg.open||/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName||''))return;await load();route()},60000);return}
-  await load();shell();route();live();setTimeout(pushAsk,1500);autoMail();autoBexio();setInterval(autoBexio,1800000);setInterval(autoMail,120000);calLoad(true);setInterval(()=>calLoad(true),900000);
+  if(bestOnly()){await load();shell();location.hash='#bestellungen';route();tourAuto();setInterval(async()=>{if(dlg.open||/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName||''))return;await load();route()},60000);return}
+  await load();shell();route();live();tourAuto();autoMail();autoBexio();setInterval(autoBexio,1800000);setInterval(autoMail,120000);calLoad(true);setInterval(()=>calLoad(true),900000);
 }
 function pendingView(m){
   root.innerHTML=`<div class="login"><div class="card"><h1>Zugang noch nicht freigeschaltet</h1><p>Angemeldet als <b>${esc(S.user.email)}</b>.</p>
@@ -184,6 +195,7 @@ async function refresh(){await load();route()}
 /* ---------- Rahmen ---------- */
 const NAV=[['uebersicht','Übersicht'],['aufgaben','Aufgaben'],['rechnungen','Rechnungen'],['finanzen','Finanzen'],['events','Events'],['lieferanten','Lieferanten'],['bestellungen','Bestellungen'],['personal','Personal'],['dokumente','Dokumente'],['kalender','Kalender'],['email','E-Mail'],['bexio','Bexio'],['protokoll','Protokoll']];
 function shell(){
+  const hf=document.getElementById('helpfab');if(hf)hf.style.display='';
   root.innerHTML=`<div id="app"><nav><div class="brand"><img src="icon-180.png" alt=""><div>Le Portier N°35<span>Wochenzentrale</span></div></div>${NAV.filter(([k])=>!bestOnly()||k==='bestellungen').map(([k,l])=>`<a href="#${k}" data-k="${k}">${l}</a>`).join('')}
   <div class="who">${esc(S.name)} · ${esc({admin:'Admin',editor:'Bearbeiter',viewer:'Nur lesen',partner:'Partner (nur ansehen)',bestellung:'Bestellungen'}[S.role])}<br><button onclick="appUpdate()" title="Neueste Version laden">↻ Aktualisieren</button> <button onclick="logout()">Abmelden</button></div></nav><main id="main"></main></div>`;
 }
@@ -194,6 +206,64 @@ function route(){
 }
 const M=h=>{const m=$('#main');m.innerHTML=h;try{cards(m)}catch(e){}return h};
 /* Neueste Version laden, ohne die Home-Bildschirm-App zu löschen: Zwischenspeicher leeren und mit neuer Adresse neu laden */
+/* ---------- Kennenlern-Tour (einmal pro Person und Gerät) + «?»-Hilfe pro Rubrik ---------- */
+const tq=x=>typeof x==='function'?x():x?document.querySelector(x):null;
+const cardOf=t=>[...document.querySelectorAll('#main .card')].find(c=>(c.querySelector('h2')?.textContent||'').includes(t));
+const navA=k=>document.querySelector(`nav a[data-k="${k}"]`);
+function tourSteps(){
+  const fertig={el:'#helpfab',t:'Geschafft! 🎉',x:'Du kennst jetzt die Wochenzentrale. Wenn du später nochmal eine Erklärung möchtest: einfach auf das <b>?</b> unten rechts tippen. Dort gibt es Tipps zu jeder Seite und diese Tour nochmal.'};
+  const push={t:'Mitteilungen aufs Handy 🔔',x:(bestOnly()?'Wir erinnern dich am <b>Dienstag und Mittwoch früh</b> an die Stardrinks-Bestellung, Frist <b>Mittwoch 12:00</b>, und melden dir, wenn sie freigegeben ist.':'Bekomme sofort eine Mitteilung bei neuen Anfragen und Mahnungen, auch wenn die App zu ist.')+(isIOS()&&!isStandalone()?' <br><b>Wichtig auf dem iPhone:</b> zuerst in Safari «Teilen» → «Zum Home-Bildschirm», dann die App von dort öffnen.':''),btn:pushOk()?['Mitteilungen aktivieren','pushOn()']:null};
+  if(bestOnly())return [
+    {go:'bestellungen',el:()=>cardOf('Bestellrechner'),t:'Willkommen, '+esc(S.name)+'! 👋',x:'Das ist dein <b>Stardrinks-Bestellrechner</b>. Bei jedem Artikel einfach die <b>Anzahl</b> eintragen, das Total rechnet sich automatisch. Mit «Produkt suchen» findest du alles schneller.'},
+    {go:'bestellungen',el:'button[onclick="ordSubmit()"]',t:'Zur Freigabe senden 📨',x:'Wenn alles drin ist: <b>«Zur Freigabe senden»</b>. Arben oder Levent geben frei, dann geht das Mail automatisch an Stardrinks, ohne Preise. Oben siehst du immer, ob diese Woche schon bestellt ist.'},
+    push,fertig];
+  if(!admin())return [
+    {go:'uebersicht',el:'#main h1',t:'Willkommen, '+esc(S.name)+'! 👋',x:'Das ist die <b>Übersicht</b>: was diese Woche fällig ist, offene Zahlungen und Termine auf einen Blick. Du kannst alles ansehen, aber nichts verändern.'},
+    {go:'finanzen',el:()=>navA('finanzen'),t:'Finanzen 💰',x:'Kontostand, Bankbewegungen, Darlehen und Jahresübersicht. Alles aus den Bankauszügen der GmbH.'},
+    {go:'rechnungen',el:()=>navA('rechnungen'),t:'Rechnungen 🧾',x:'Offene Rechnungen von Lieferanten, was schon bezahlt ist und die Rechnungen, die wir selbst gestellt haben.'},
+    {go:'events',el:()=>navA('events'),t:'Events 🎉',x:'Jede Eventabrechnung mit Umsatz, Personal und Warenaufwand. Als PDF herunterladbar.'},
+    {...push,go:'uebersicht',el:()=>$('#pushbox')?.closest('.card')},fertig];
+  return [
+    {go:'uebersicht',el:'#main h1',t:'Willkommen, '+esc(S.name)+'! 👋',x:'Die <b>Übersicht</b> zeigt, was diese Woche fällig ist. Oben erscheinen rote Hinweise, wenn etwas auf dich wartet: Zugangsanfragen oder Bestellungen zur Freigabe.'},
+    {go:'aufgaben',el:()=>document.querySelector('button[onclick^="aufgWho"]')?.parentElement,t:'Meine Aufgaben ✅',x:'Hier siehst du nur <b>deine</b> Aufgaben. Mit den Knöpfen wechselst du zu Levent, Ohne Zuständigkeit oder Alle. Zuständige wählst du im Eintrag per Knopf.'},
+    {go:'aufgaben',el:()=>navA('email'),t:'Anfragen & Clubmiete 📬',x:'Neue Anfragen, Clubmiete und Offerten aus info@ und contact@ werden automatisch als Aufgabe für <b>Levent</b> angelegt. Unter «E-Mail» siehst du beide Postfächer.'},
+    {go:'bestellungen',el:()=>navA('bestellungen'),t:'Bestellungen freigeben 🍾',x:'Jenny erfasst die Stardrinks-Bestellung. Du oder Levent tippt auf <b>«Freigeben & an Stardrinks senden»</b>. Frist ist jeweils Mittwoch 12:00.'},
+    {...push,go:'uebersicht',el:()=>$('#pushbox')?.closest('.card')},fertig];
+}
+let TOUR=null;
+function tourAuto(){let done=false;try{done=!!localStorage.getItem('tourDone_'+S.user.id)}catch(e){}
+  if(done)setTimeout(pushAsk,1500);else setTimeout(tourStart,900)}
+function tourStart(){if(dlg.open)dlg.close();TOUR={i:0,s:tourSteps()};document.getElementById('tour')?.remove();
+  const d=document.createElement('div');d.id='tour';d.innerHTML='<div class="spot none"></div><div class="tc"></div>';document.body.appendChild(d);tourShow()}
+async function tourShow(){const T=TOUR;if(!T)return;const st=T.s[T.i],d=$('#tour');
+  if(st.go&&!bestOnly()&&location.hash.slice(1)!==st.go){location.hash='#'+st.go;await new Promise(r=>setTimeout(r,250))}
+  const el=tq(st.el),sp=d.querySelector('.spot'),tc=d.querySelector('.tc');
+  if(el){el.scrollIntoView({block:'center',inline:'center',behavior:'smooth'});await new Promise(r=>setTimeout(r,350));const r=el.getBoundingClientRect(),p=6;
+    sp.classList.remove('none');Object.assign(sp.style,{left:r.left-p+'px',top:r.top-p+'px',width:r.width+2*p+'px',height:r.height+2*p+'px'});tc.classList.toggle('top',r.top>window.innerHeight*.5)}
+  else{sp.classList.add('none');tc.classList.remove('top')}
+  const n=T.s.length,last=T.i===n-1;
+  tc.innerHTML=`<div class="dots">${T.s.map((_,j)=>`<i class="${j<=T.i?'on':''}"></i>`).join('')}<span>${T.i+1} von ${n}</span></div><h3>${st.t}</h3><p>${st.x}</p>
+   <div class="tb">${last?'':'<button class="btn sec sk" onclick="tourEnd()">Überspringen</button>'}${T.i?'<button class="btn sec" onclick="tourGo(-1)">Zurück</button>':''}${st.btn?`<button class="btn sec" onclick="${st.btn[1]}">${st.btn[0]}</button>`:''}<button class="btn" onclick="${last?'tourEnd()':'tourGo(1)'}">${last?'Los geht\'s':'Weiter'}</button></div>`}
+function tourGo(k){TOUR.i=Math.max(0,Math.min(TOUR.s.length-1,TOUR.i+k));tourShow()}
+function tourEnd(){TOUR=null;$('#tour')?.remove();try{localStorage.setItem('tourDone_'+S.user.id,'1')}catch(e){}if(!bestOnly())location.hash='#uebersicht';else route()}
+const HELP={
+  uebersicht:['Oben stehen rote Hinweise, wenn etwas auf dich wartet (Zugangsanfragen, Bestellungen zur Freigabe).','«Diese Woche» zeigt alle Fälligkeiten; ein Tipp auf einen Eintrag öffnet ihn.','Unter «Mitteilungen auf diesem Gerät» schaltest du Push-Mitteilungen ein oder aus.'],
+  aufgaben:['«Meine Aufgaben» zeigt deine und noch nicht zugeteilte Aufgaben; die Auswahl merkt sich das Gerät.','Neue Anfragen, Clubmiete und Offerten aus den Mails landen automatisch hier, zugeteilt an Levent.','Im Eintrag wählst du die Zuständigen per Knopf: Arben, Levent oder beide.'],
+  rechnungen:['Offene Lieferantenrechnungen mit Fälligkeit; Rechnungen aus Mails werden alle 10 Minuten übernommen.','«Gestellte Rechnungen» sind Rechnungen, die wir selbst verschickt haben – Guthaben, keine Schulden.','«Bezahlt» heisst: die Zahlung wurde in der Bank gefunden.'],
+  finanzen:['Kontostand und alle Bankbewegungen seit Gründung der GmbH.','Darlehen, Schulden und die Jahresübersicht stehen weiter unten.','Beträge mit «zu prüfen» sind noch nicht bestätigt.'],
+  events:['Jede Eventabrechnung: Umsatz aus der Kasse, Personal aus der Stempeluhr, Warenaufwand 20 %.','Mit «PDF» lädst du die Abrechnung herunter.'],
+  lieferanten:['Lieferanten, Verträge und Zahlungen getrennt nach Bestellungen und alten Forderungen.','Eine bezahlte Bestellung reduziert keine ältere Forderung.'],
+  bestellungen:['Im Bestellrechner die Anzahl pro Artikel eintragen – das Total rechnet sich automatisch.','«Zur Freigabe senden» meldet die Bestellung Arben und Levent; erst nach der Freigabe geht das Mail (ohne Preise) an Stardrinks.','Frist: jeden Mittwoch 12:00. Oben siehst du, ob diese Woche schon bestellt ist.'],
+  personal:['Stunden aus der Stempeluhr pro Monat; «Abrechnung erstellen» legt das PDF im Archiv ab.','«Neu erstellen» ersetzt die Abrechnung desselben Monats – kein Doppel.','In den Mitarbeiter-Ordnern findest du Vertrag und Lohnabrechnungen pro Person.'],
+  dokumente:['Alle Dokumente nach Kategorien; vertrauliche Unterlagen sehen nur Admins und Partner.','Mit der Suche findest du auch Text in PDFs.'],
+  kalender:['Alle Termine und Fälligkeiten im Monatsüberblick.'],
+  email:['Beide Postfächer info@ und contact@ – nur lesend, es wird nichts verschoben oder gelöscht.','«Übernehmen» macht aus einem Mail eine Aufgabe oder Rechnung.'],
+  bexio:['Rechnungen und Zahlungen aus Bexio; es werden keine Rechnungen ausgeführt oder gelöscht.','«Später» blendet einen offenen Posten vorübergehend aus.'],
+  protokoll:['Jede Änderung wird mit Zeit, Person und altem/neuem Wert gespeichert.','Unter «Benutzer» schaltest du neue Personen frei und vergibst die Rolle.']
+};
+function helpOpen(){const k=bestOnly()?'bestellungen':(location.hash.slice(1)||'uebersicht'),L=HELP[k]||[],name=(NAV.find(x=>x[0]===k)||[,'Diese Seite'])[1];
+  dlg.innerHTML=`<form method="dialog"><h2>❓ ${esc(name)}</h2>${L.length?`<ol style="padding-left:20px;line-height:1.5">${L.map(t=>`<li style="margin-bottom:6px">${esc(t)}</li>`).join('')}</ol>`:'<p class="mut">Für diese Seite gibt es noch keine Tipps.</p>'}
+   <div class="bar"><button class="btn sec">Schliessen</button><button class="btn" type="button" onclick="dlg.close();tourStart()">Tour nochmal starten 🚀</button></div></form>`;dlg.showModal()}
 /* ---------- Push-Mitteilungen (Web Push, ohne Telefonnummer) ---------- */
 const PUSHT={anfragen:'Neue Anfragen, Clubmiete, Offerten',mahnungen:'Mahnungen',rechnungen:'Neue Rechnungen aus Mails'};
 const pushOk=()=>'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;

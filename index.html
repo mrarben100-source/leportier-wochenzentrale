@@ -735,10 +735,13 @@ function ordConfirm(){if(!confirm('Alle Preise als bestätigt markieren?\n\nNur 
 // Kasse (BF-POS): echter Verkaufsumsatz pro Party inkl. Bar, seit Oktober 2026.
 const UMK={karten:'Karten & TWINT',tickets:'Tickets (Eventfrog)',bar:'Bar eingezahlt',sponsoring:'Sponsoring',diverses:'Vermietung & Diverses'};
 function umsKat(t){if(t.review_state==='duplikat'||!(+t.amount_chf>0)||konto(t)!=='GmbH')return null;const c=t.category||'unkategorisiert',d=t.description||'';
+  // SumUp-Auszahlungen Ende Okt. 2024 bis Anfang Mai 2025 = Kebab-Laden Düdingen (gleiche GmbH, nicht Le Portier)
+  if(c==='Karten- und Onlineeinnahmen'&&/sumup/i.test(d)&&t.booking_date>='2024-10-22'&&t.booking_date<='2025-05-02')return 'kebab';
   if(c==='Karten- und Onlineeinnahmen')return /eventfrog/i.test(d)?'tickets':'karten';if(c==='Bareinzahlung')return 'bar';if(c==='Sponsoring')return 'sponsoring';
   if(c==='unkategorisiert'&&!/primevibes|storno|faber home|apfelkiste/i.test(d))return 'diverses';return null}
 function umsBox(jahr){
-  const T=S.tx.filter(t=>(!jahr||t.booking_date.startsWith(jahr))).map(t=>({t,k:umsKat(t)})).filter(x=>x.k),M2={},sum={};
+  let T=S.tx.filter(t=>(!jahr||t.booking_date.startsWith(jahr))).map(t=>({t,k:umsKat(t)})).filter(x=>x.k),M2={},sum={};
+  const keb=T.filter(x=>x.k==='kebab').reduce((a,x)=>a+ +x.t.amount_chf,0);T.splice(0,T.length,...T.filter(x=>x.k!=='kebab'));
   T.forEach(({t,k})=>{const m=t.booking_date.slice(0,7);M2[m]??={};M2[m][k]=(M2[m][k]||0)+ +t.amount_chf;sum[k]=(sum[k]||0)+ +t.amount_chf});
   let tot=Object.values(sum).reduce((a,b)=>a+b,0),mon=Object.keys(M2).sort().reverse(),K=Object.keys(UMK).filter(k=>sum[k]);
   // Kasse pro Nacht: SumUp (Import) + BF-POS (Tagesabschlüsse in den Events)
@@ -755,14 +758,15 @@ function umsBox(jahr){
   return `<div class="card" style="margin-top:12px"><h2>Umsatz ${jahr||'gesamt'}: Verkauf, Partys, Events</h2>
   <div class="grid">${NL.length?`<div class="card kpi"><div class="l">Kassenumsatz (Verkauf)</div><div class="v num" style="color:var(--grn)">${chf(kt)}</div><div class="sm mut">${NL.length} Abende/Tage · SumUp + BF-POS</div></div>`:''}
    <div class="card kpi"><div class="l">Eingänge laut Bank</div><div class="v num">${chf(tot)}</div><div class="sm mut">${T.length} Eingänge</div></div>
-   ${K.map(k=>`<div class="card kpi"><div class="l">${UMK[k]}</div><div class="v num">${chf(sum[k])}</div><div class="sm mut">laut Bank</div></div>`).join('')}</div>
+   ${K.map(k=>`<div class="card kpi"><div class="l">${UMK[k]}</div><div class="v num">${chf(sum[k])}</div><div class="sm mut">laut Bank</div></div>`).join('')}
+   ${keb?`<div class="card kpi"><div class="l">Kebab Düdingen (separat)</div><div class="v num mut">${chf(keb)}</div><div class="sm mut">SumUp-Auszahlungen Okt. 2024 – Mai 2025, nicht im Le-Portier-Umsatz</div></div>`:''}</div>
   ${NL.length?`<h3 style="margin-top:14px">Pro Abend (Kasse)</h3><div class="tw"><table><tr><th>Datum</th><th>Anlass</th><th class="r">Umsatz</th><th class="r">Karte</th><th class="r">TWINT</th><th class="r">Bar</th><th class="r">Belege</th><th>Kasse</th></tr>
    ${shown.map(x=>`<tr class="click" onclick="kasseNacht('${x.datum}')"><td class="num">${fd(x.datum)}</td><td>${art(x)}</td><td class="num r"><b>${chf(x.tot)}</b></td><td class="num r">${chf(x.karte)}</td><td class="num r">${x.twint?chf(x.twint):'–'}</td><td class="num r">${chf(x.bar)}</td><td class="num r">${x.belege}</td><td class="sm">${[x.su?'SumUp':'',x.bf?'BF-POS':''].filter(Boolean).join(' + ')}</td></tr>`).join('')}</table></div>
    ${mehr?`<div class="bar"><button class="btn sec" onclick="S.kAll=1;route()">Alle ${NL.length} anzeigen</button></div>`:''}
    ${top.length?`<details style="margin-top:8px"><summary style="cursor:pointer"><b>Meistverkauft ${jahr||'gesamt'}</b> <span class="sm mut">(Top 15 nach Umsatz, ohne freie Beträge)</span></summary><div class="tw"><table><tr><th>Produkt</th><th class="r">Menge</th><th class="r">Umsatz</th></tr>${top.map(([n,v])=>`<tr><td>${esc(n)}</td><td class="num r">${Math.round(v.menge)}</td><td class="num r">${chf(v.umsatz)}</td></tr>`).join('')}</table></div></details>`:''}`:''}
   <h3 style="margin-top:14px">Pro Monat</h3>${(mon=[...new Set([...mon,...Object.keys(KM)])].sort().reverse()).length?`<div class="tw"><table><tr><th>Monat</th><th class="r">Kasse (Verkauf)</th>${K.map(k=>`<th class="r">Bank: ${UMK[k]}</th>`).join('')}<th class="r">Bank total</th></tr>
    ${mon.map(m=>{const r=M2[m]||{},t=Object.values(r).reduce((a,b)=>a+b,0);const [y,mm]=m.split('-');return `<tr><td>${MON[+mm-1]} ${y}</td><td class="num r"><b>${KM[m]?chf(KM[m]):'–'}</b></td>${K.map(k=>`<td class="num r">${r[k]?chf(r[k]):'–'}</td>`).join('')}<td class="num r">${t?chf(t):'–'}</td></tr>`}).join('')}</table></div>`:'<p class="mut sm">Keine Eingänge in diesem Zeitraum.</p>'}
-  <p class="sm mut">«Laut Bank» = was effektiv auf dem GmbH-Konto eingegangen ist: Karten/TWINT nach Abzug der Gebühren und einige Tage später gutgeschrieben; Bar nur, soweit eingezahlt. Nicht dabei: Darlehen, Einlagen, interne Überträge, Duplikate. «Kasse» = echter Verkaufsumsatz inkl. MWST und Bar aus SumUp (ab Oktober 2024) und BF-POS (ab Oktober 2026); Verkäufe nach Mitternacht bis 06:00 zählen zum Abend davor.</p></div>`}
+  <p class="sm mut">«Laut Bank» = was effektiv auf dem GmbH-Konto eingegangen ist: Karten/TWINT nach Abzug der Gebühren und einige Tage später gutgeschrieben. Le Portier war bis Oktober 2026 bargeldlos. Nicht dabei: Darlehen, Einlagen, interne Überträge, Duplikate. «Kasse» = echter Verkaufsumsatz inkl. MWST und Bar aus SumUp (ab Oktober 2024) und BF-POS (ab Oktober 2026); Verkäufe nach Mitternacht bis 06:00 zählen zum Abend davor.</p></div>`}
 function kasseNacht(d){const x=S.kN?.[d];if(!x)return;const L=Object.entries(x.prod).sort((a,b)=>b[1].umsatz-a[1].umsatz);
   dlg.innerHTML=`<form method="dialog"><h2>Kasse ${fd(d)}</h2><p>${x.ev?'<b>'+esc(x.ev.title)+'</b><br>':''}Umsatz <b>${chf(x.su+x.bf)}</b> · Karte ${chf(x.karte)}${x.twint?' · TWINT '+chf(x.twint):''} · Bar ${chf(x.bar)} · ${x.belege} Belege${x.tg?' · Trinkgeld '+chf(x.tg):''}</p>
    ${L.length?`<div class="tw" style="max-height:50vh;overflow:auto"><table><tr><th>Produkt</th><th class="r">Menge</th><th class="r">Umsatz</th></tr>${L.map(([n,v])=>`<tr><td>${esc(n)}</td><td class="num r">${Math.round(v.menge)}</td><td class="num r">${chf(v.umsatz)}</td></tr>`).join('')}</table></div>`:''}

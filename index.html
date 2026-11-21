@@ -161,7 +161,7 @@ function loginView(msg){
   <input id="le" type="email" placeholder="E-Mail" autocomplete="username"><input id="lp" type="password" placeholder="Passwort" autocomplete="current-password">
   <button class="btn" id="li">Anmelden</button></div></div>`;
   const cred=()=>({email:$('#le').value.trim(),password:$('#lp').value});
-  $('#li').onclick=async()=>{const {error}=await sb.auth.signInWithPassword(cred());error?toast('Anmeldung fehlgeschlagen: '+error.message,1):boot()};
+  $('#li').onclick=async()=>{const {error}=await sb.auth.signInWithPassword(cred());if(error)return toast('Anmeldung fehlgeschlagen: '+error.message,1);sb.functions.invoke('lp-notify',{body:{action:'login',geraet:isIOS()?'iPhone':/android/i.test(navigator.userAgent)?'Android':'Computer'}}).catch(()=>{});boot()};
   $('#lp').onkeydown=e=>{if(e.key==='Enter')$('#li').click()};
 }
 async function logout(){await sb.auth.signOut();location.hash='';location.reload()}
